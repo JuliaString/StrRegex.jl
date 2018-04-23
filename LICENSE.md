@@ -1,7 +1,8 @@
 The StrRegex.jl package is licensed under the MIT "Expat" License:
 
-> Copyright (c) 2018: ScottPJones.
->
+Copyright (c) 2018: Gandalf Software, Inc. (Scott Paul Jones), and other contributors (see below)
+Parts are derived from julia/base/regex.jl and julia/test/regex.jl, which are part of the open source [Julia](https://github.com/JuliaLang/julia) project, see https://github.com/JuliaLang/julia/blob/master/LICENSE.md (since not all contributors to Julia are not displayed by https://github.com/JuliaLang/julia/contributors, instead use git (git log | grep "Author:" | sort -u) to get a full list)
+
 > Permission is hereby granted, free of charge, to any person obtaining a copy
 > of this software and associated documentation files (the "Software"), to deal
 > in the Software without restriction, including without limitation the rights
