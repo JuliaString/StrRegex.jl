@@ -14,7 +14,7 @@ using Strs: _LatinCSE, Latin_CSEs, Binary_CSEs, UCS2_CSEs, UTF8_CSEs, UTF32_CSEs
 import Strs: find, occurs_in, _occurs_in
 
 using Base.PCRE
-using Base.PCRE: NO_UTF_CHECK, UTF, CASELESS, MULTILINE, DOTALL, EXTENDED
+using Base.PCRE: NO_UTF_CHECK, UTF
 
 # UTF and NO_UTF_CHECK are based on the string type
 const DEFAULT_COMPILER_OPTS = PCRE.ALT_BSUX
@@ -130,16 +130,16 @@ RegexStr(pattern::AbstractString) =
 RegexStr(pattern::AbstractString, flags::AbstractString) =
     RegexStr(pattern, _update_compile_opts(flags), DEFAULT_MATCH_OPTS)
 
-#=
 Regex(pattern::MaybeSub{<:Str}, co, mo) = RegexStr(pattern, co, mo)
 Regex(pattern::MaybeSub{<:Str}, flags::AbstractString) = RegexStr(pattern, flags)
 Regex(pattern::MaybeSub{<:Str}) = RegexStr(pattern)
-=#
 
+#=
 # Yes, this is type piracy, but it is needed to make all string types work together easily
 Regex(pattern::AbstractString, co::Integer, mo::Integer) = RegexStr(pattern, co, mo)
 Regex(pattern::AbstractString, flags::AbstractString) = RegexStr(pattern, flags)
 Regex(pattern::AbstractString) = RegexStr(pattern)
+=#
 
 export @R_str
 
@@ -148,7 +148,7 @@ macro R_str(pattern, flags...) RegexStr(pattern, flags...) end
 function show(io::IO, re::RegexStr)
     imsx = PCRE.CASELESS|PCRE.MULTILINE|PCRE.DOTALL|PCRE.EXTENDED
     opts = re.compile_options
-    if (opts & ~imsx) == DEFAULT_COMPILER_OPTS
+    if (opts & ~imsx) == _cvt_compile(typeof(re.pattern), DEFAULT_COMPILER_OPTS)
         print(io, 'R')
         Base.print_quoted_literal(io, re.pattern)
         if (opts & PCRE.CASELESS ) != 0; print(io, 'i'); end
@@ -164,16 +164,16 @@ function show(io::IO, re::RegexStr)
     end
 end
 
-struct RegexStrMatch{T<:AbstractString,M<:RegexTypes}
+struct RegexStrMatch{T<:AbstractString}
     match::SubString{T}
     captures::Vector{Union{Nothing,SubString{T}}}
     offset::Int
     offsets::Vector{Int}
-    regex::M
+    regex::RegexStr
 end
 
-function show(io::IO, m::RegexStrMatch{T,M}) where {T,M}
-    print(io, "RegexStrMatch{$T,$M}(")
+function show(io::IO, m::RegexStrMatch{T}) where {T}
+    print(io, "RegexStrMatch{$T}(")
     show(io, m.match)
     idx_to_capture_name = PCRE.capture_names(m.regex.regex)
     if !is_empty(m.captures)
@@ -204,7 +204,7 @@ function compile(::Type{C}, regex::RegexStr) where {C<:Regex_CSEs}
     regex.match_type = nm
     if (re = regex.table[nm]) == C_NULL
         regex.compile_options = cvtcomp = _cvt_compile(C, regex.compile_options)
-        regex.pattern = pat = convert(Str{C}, regex.pattern)
+        regex.pattern = pat = convert(Str{C,Nothing,Nothing,Nothing}, regex.pattern)
         regex.regex = re = PCRE.compile(pat, cvtcomp)
         regex.table = _update_table(regex.table, re, nm)
         PCRE.jit_compile(re)
@@ -239,10 +239,11 @@ function compile(::Type{C}, regex::Regex) where {C<:Regex_CSEs}
 end
 
 function exec(re, subject, offset, options, match_data)
+    #print("exec($re, \"$subject\", $offset, $options, match_data)")
     pnt = pointer(subject)
     siz = sizeof(subject)
     loc = bytoff(eltype(pnt), offset)
-    loc < siz || boundserr(subject, offset)
+    0 <= loc <= siz || boundserr(subject, offset)
     rc = ccall((:pcre2_match_8, PCRE.PCRE_LIB), Cint,
                (Ptr{Cvoid}, Ptr{UInt8}, Csize_t, Csize_t, Cuint, Ptr{Cvoid}, Ptr{Cvoid}),
                re, pnt, siz, loc, options, match_data, PCRE.MATCH_CONTEXT[])
@@ -252,8 +253,9 @@ function exec(re, subject, offset, options, match_data)
 end
 
 function _match(::Type{C}, re, str, idx, add_opts) where {C<:CSE}
+    #println("_match($C, $re, $str, $idx, $add_opts)")
     compile(C, re)
-    exec(re.regex, str, idx-1, _cvt_match(C, re.match_options | add_opts), re.match_data) ||
+    exec(re.regex, str, idx - 1, _cvt_match(C, re.match_options | add_opts), re.match_data) ||
         return nothing
     ovec = re.ovec
     n = div(length(ovec),2) - 1
@@ -311,22 +313,55 @@ find(::Type{First}, re::RegexTypes, str::MaybeSub{<:Str{_LatinCSE}}) =
 find(::Type{First}, re::RegexTypes, str::MaybeSub{String}) = 
     __find(RawUTF8CSE, re, str, 0)
 
-struct RegexStrMatchIterator{R<:RegexTypes,T<:AbstractString}
-    regex::R
+struct RegexStrMatchIterator{T<:AbstractString}
+    regex::RegexStr
     string::T
     overlap::Bool
 
-    RegexStrMatchIterator{R,T}(regex::R, string::T, ovr::Bool=false
-                               ) where {R<:RegexTypes,T<:AbstractString} =
-        new{R,T}(regex, string, ovr)
+    RegexStrMatchIterator(regex::RegexStr, str::AbstractString, ovr::Bool=false) =
+        new{typeof(str)}(regex, str, ovr)
 end
-compile(itr::RegexStrMatchIterator) = (compile(itr.regex); itr)
-eltype(::Type{RegexStrMatchIterator}) = RegexStrMatch
+compile(itr::RegexStrMatchIterator{T}) where {T} = (compile(cse(T), itr.regex); itr)
+eltype(::Type{RegexStrMatchIterator{T}}) where {T} = RegexStrMatch{T}
 start(itr::RegexStrMatchIterator) = match(itr.regex, itr.string, 1, UInt32(0))
 done(itr::RegexStrMatchIterator, prev_match) = (prev_match === nothing)
-IteratorSize(::Type{RegexStrMatchIterator}) = SizeUnknown()
+IteratorSize(::Type{RegexStrMatchIterator{T}}) where {T<:AbstractString} = Base.SizeUnknown()
 
 # Assumes prev_match is not nothing
+@static if true
+function next(itr::RegexStrMatchIterator, prev_match)
+    prevempty = isempty(prev_match.match)
+
+    if itr.overlap
+        if !prevempty
+            offset = nextind(itr.string, prev_match.offset)
+        else
+            offset = prev_match.offset
+        end
+    else
+        offset = prev_match.offset + ncodeunits(prev_match.match)
+    end
+
+    opts_nonempty = UInt32(PCRE.ANCHORED | PCRE.NOTEMPTY_ATSTART)
+    while true
+        mat = match(itr.regex, itr.string, offset,
+                    prevempty ? opts_nonempty : UInt32(0))
+
+        if mat === nothing
+            if prevempty && offset <= sizeof(itr.string)
+                offset = nextind(itr.string, offset)
+                prevempty = false
+                continue
+            else
+                break
+            end
+        else
+            return (prev_match, mat)
+        end
+    end
+    (prev_match, nothing)
+end
+else
 function next(itr::RegexStrMatchIterator, prev_match)
     opts_nonempty = UInt32(PCRE.ANCHORED | PCRE.NOTEMPTY_ATSTART)
     if isempty(prev_match.match)
@@ -347,6 +382,22 @@ function next(itr::RegexStrMatchIterator, prev_match)
         end
     end
     (prev_match, mat)
+    #=
+    prevempty = isempty(prev_match.match)
+    offset = (itr.overlap
+              ? (prevempty ? prev_match.offset : nextind(itr.string, prev_match.offset))
+              : (prev_match.offset + ncodeunits(prev_match.match)))
+    opts_nonempty = prevempty ? UInt32(PCRE.ANCHORED | PCRE.NOTEMPTY_ATSTART) : UInt32(0)
+    while true
+        mat = match(itr.regex, itr.string, offset, opts_nonempty)
+        mat !== nothing && return (prev_match, mat)
+        (prevempty && offset <= sizeof(itr.string)) || break
+        offset = nextind(itr.string, offset)
+        opts_nonempty = UInt32(0)
+    end
+    (prev_match, nothing)
+    =#
+end
 end
 
 eachmatch(re::RegexStr, str::AbstractString; overlap = false) =
@@ -370,8 +421,8 @@ _occurs_in(r::RegexTypes, s::AbstractString, off::Integer) =
 _occurs_in(r::RegexTypes, s::MaybeSub{<:Str{C}}, off::Integer) where {C<:Regex_CSEs} =
     (compile(C, r) ; exec(r.regex, s, off, r.match_options, r.match_data))
 
-occurs_in(needle::RegexStr, hay::AbstractString; off::Integer=0) = _occurs_in(needle, hay, off)
-occurs_in(needle::RegexTypes, hay::Str; off::Integer=0)          = _occurs_in(needle, hay, off)
-occurs_in(needle::RegexTypes, hay::SubString{<:Str}; off::Integer=0) =
+occurs_in(needle::RegexStr, hay::AbstractString; off::Integer=0) =
+    _occurs_in(needle, hay, off)
+occurs_in(needle::Regex, hay::MaybeSub{<:Str}; off::Integer=0) =
     _occurs_in(needle, hay, off)
 end # module
