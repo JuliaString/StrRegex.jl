@@ -20,10 +20,10 @@ end
 const CodeUnits = @static V6_COMPAT ? Strs.CodeUnits : Base.CodeUnits
 
 # Should test GenericString also, once overthing else is working
-const UnicodeStringTypes = (String, UTF8Str, )
+const UnicodeStringTypes = (String, UTF8Str, UTF16Str, UTF32Str, UCS2Str, UniStr)
     # (String, UTF16Str, UTF32Str, UniStr, UTF8Str)
-const ASCIIStringTypes = (String, UTF8Str, ASCIIStr, LatinStr)
-    #    (UnicodeStringTypes..., ASCIIStr, LatinStr, UCS2Str)
+const ASCIIStringTypes = # (String, UTF8Str, ASCIIStr, LatinStr, UCS2Str, UTF32Str)
+    (UnicodeStringTypes..., ASCIIStr, LatinStr)
 
 function test2(str, list)
     for (pat, res) in list
@@ -45,11 +45,12 @@ const fbbstr = "foo,bar,baz"
 const astr = "Hello, world.\n"
 const u8str = "∀ ε > 0, ∃ δ > 0: |x-y| < δ ⇒ |f(x)-f(y)| < ε"
 
-@testset "ASCII Regex Tests" begin
-    for T in ASCIIStringTypes
+#@testset "ASCII Regex Tests" begin
+#    for T in ASCIIStringTypes
+T = String
         fbb = T(fbbstr)
         str = T(astr)
-        @testset "str: $T" begin
+#        @testset "str: $T" begin
             # string forward search with a single-char regex
             let pats = (R"x", R"H", R"l", R"\n"),
                 res  = (0:-1, 1:1, 3:3, 14:14)
@@ -76,9 +77,9 @@ const u8str = "∀ ε > 0, ∃ δ > 0: |x-y| < δ ⇒ |f(x)-f(y)| < ε"
                 res  = ( 0:-1,  0:-1,  0:-1,   8:9,  0:-1,  0:-1) # was 12 for fndnext
                 test3(fbb, zip(pats, pos, res))
             end
-        end
-    end
-end
+#        end
+#    end
+#end
 
 @testset "Unicode Regex Tests" begin
     for T in UnicodeStringTypes
