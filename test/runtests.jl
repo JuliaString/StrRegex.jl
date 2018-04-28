@@ -13,31 +13,41 @@ const IndexError = isdefined(Base, :StringIndexError) ? StringIndexError : Unico
 
 # Add definitions not present in v0.6.2 for GenericString
 @static if V6_COMPAT
+    const Nothing = Void
     Strs.ncodeunits(s::GenericString) = ncodeunits(s.string)
     Strs.codeunit(s::GenericString) = codeunit(s.string)
     Strs.codeunit(s::GenericString, i::Integer) = codeunit(s.string, i)
 end
 const CodeUnits = @static V6_COMPAT ? Strs.CodeUnits : Base.CodeUnits
 
+cvt(v::Integer, m::Nothing) = v
+cvt(v::Integer, m::Vector{Int}) = v < 1 ? v : m[v]
+cvt(v::UnitRange, m) = cvt(v.start,m):cvt(v.stop,m)
+
 # Should test GenericString also, once overthing else is working
-const UnicodeStringTypes = (String, UTF8Str, UTF16Str, UTF32Str, UCS2Str, UniStr)
+const UnicodeStringTypes = (String, UTF8Str, UTF16Str, UTF32Str, UCS2Str)
     # (String, UTF16Str, UTF32Str, UniStr, UTF8Str)
 const ASCIIStringTypes = # (String, UTF8Str, ASCIIStr, LatinStr, UCS2Str, UTF32Str)
     (UnicodeStringTypes..., ASCIIStr, LatinStr)
 
-function test2(str, list)
+function test2(str, list, umap::Union{Nothing,Vector{Int}}=nothing)
+    mymap = encoding(str) == encoding(UTF8Str) ? umap : nothing
     for (pat, res) in list
-#        (r = fnd(First, pat, str)) == res ||
-#            println("fnd(First, $(typeof(pat)):\"$pat\", $(typeof(str)):\"$str\") => $r != $res")
-        @test fnd(First, pat, str) == res
+        cvtres = cvt(res, mymap)
+        (r = fnd(First, pat, str)) == cvtres ||
+            println("fnd(First, $(typeof(pat)):\"$pat\", $(typeof(str)):\"$str\") => $r != $cvtres ($res)")
+        @test fnd(First, pat, str) == cvtres
     end
 end
 
-function test3(str, list)
+function test3(str, list, umap::Union{Nothing,Vector{Int}}=nothing)
+    mymap = encoding(str) == encoding(UTF8Str) ? umap : nothing
     for (pat, beg, res) in list
-#        (r = fnd(Fwd, pat, str, beg)) == res ||
-#            println("fnd(Fwd, $(typeof(pat)):\"$pat\", $(typeof(str)):\"$str\", $beg) => $r != $res")
-        @test fnd(Fwd, pat, str, beg) == res
+        cvtbeg = cvt(beg, mymap)
+        cvtres = cvt(res, mymap)
+        (r = fnd(Fwd, pat, str, cvtbeg)) == cvtres ||
+            println("fnd(Fwd, $(typeof(pat)):\"$pat\", $(typeof(str)):\"$str\", $cvtbeg ($beg)) => $r != $cvtres ($res)")
+        @test fnd(Fwd, pat, str, cvtbeg) == cvtres
     end
 end
 
@@ -45,12 +55,13 @@ const fbbstr = "foo,bar,baz"
 const astr = "Hello, world.\n"
 const u8str = "∀ ε > 0, ∃ δ > 0: |x-y| < δ ⇒ |f(x)-f(y)| < ε"
 
-#@testset "ASCII Regex Tests" begin
-#    for T in ASCIIStringTypes
-T = String
+const utf8map = collect(eachindex(u8str))
+
+@testset "ASCII Regex Tests" begin
+    for T in ASCIIStringTypes
         fbb = T(fbbstr)
         str = T(astr)
-#        @testset "str: $T" begin
+        @testset "str: $T" begin
             # string forward search with a single-char regex
             let pats = (R"x", R"H", R"l", R"\n"),
                 res  = (0:-1, 1:1, 3:3, 14:14)
@@ -77,9 +88,9 @@ T = String
                 res  = ( 0:-1,  0:-1,  0:-1,   8:9,  0:-1,  0:-1) # was 12 for fndnext
                 test3(fbb, zip(pats, pos, res))
             end
-#        end
-#    end
-#end
+        end
+    end
+end
 
 @testset "Unicode Regex Tests" begin
     for T in UnicodeStringTypes
@@ -87,16 +98,17 @@ T = String
             str = T(u8str)
             @testset "Regex" begin
                 let pats = (R"z", R"∄", R"∀", R"∃", R"x", R"ε"),
-                    res  = (0:-1, 0:-1, 1:1, 13:13,26:26,  5:5)
-                    test2(str, zip(pats, res))
+                    res  = (0:-1, 0:-1, 1:1, 10:10,20:20,  3:3)
+                    test2(str, zip(pats, res), utf8map)
                 end
                 let pats = (R"∀", R"∃", R"x", R"x", R"ε", R"ε"),
-                    pos  = (   4,   16,   27,   44,    7,   54), # was 56 for fndnext
-                    res  = (0:-1, 0:-1,43:43, 0:-1,54:54,54:54)  # was 0:-1 for last
-                    test3(str, zip(pats, pos, res))
+                    pos  = (   2,   11,   21,   35,    4,   45), # was 56 for fndnext
+                    res  = (0:-1, 0:-1,34:34, 0:-1,45:45,45:45)  # was 0:-1 for last
+                    test3(str, zip(pats, pos, res), utf8map)
                 end
+                v = cvt(2, encoding(T) == encoding(UTF8Str) ? utf8map : nothing)
                 @test fnd(First, R"∀", str)  == fnd(First, R"\u2200", str)
-                @test fnd(Fwd, R"∀", str, 4) == fnd(Fwd, R"\u2200", str, 4)
+                @test fnd(Fwd, R"∀", str, v) == fnd(Fwd, R"\u2200", str, v)
                 i = 1
                 while i <= ncodeunits(str)
                     @test fnd(Fwd, R"."s, str, i) == i:i
@@ -183,65 +195,67 @@ target = """71.163.72.113 - - [30/Jul/2014:16:40:55 -0700] "GET emptymind.org/th
     end
 end
 
-@testset "Regex Utility functions" for ST in UnicodeStringTypes
-    foobarbaz = ST("foo,bar,baz")
-    foo = ST("foo")
-    bar = ST("bar")
-    baz = ST("baz")
-    abc = ST("abc")
-    abcd = ST("abcd")
-    @testset "rsplit/split" begin
-        @test split(foobarbaz, R",") == [foo,bar,baz]
+for ST in UnicodeStringTypes
+    @testset "$ST Regex Utility functions" begin
+        foobarbaz = ST("foo,bar,baz")
+        foo = ST("foo")
+        bar = ST("bar")
+        baz = ST("baz")
+        abc = ST("abc")
+        abcd = ST("abcd")
+        @testset "rsplit/split" begin
+            @test split(foobarbaz, R",") == [foo,bar,baz]
 
-        let str = ST("a.:.ba..:..cba.:.:.dcba.:.")
-            @test split(str, R"\.(:\.)+") == ["a","ba.",".cba","dcba",""]
-            @test split(str, R"\.(:\.)+"; keepempty=false) == ["a","ba.",".cba","dcba"]
-            @test split(str, R"\.+:\.+") == ["a","ba","cba",":.dcba",""]
-            @test split(str, R"\.+:\.+"; keepempty=false) == ["a","ba","cba",":.dcba"]
+            let str = ST("a.:.ba..:..cba.:.:.dcba.:.")
+                @test split(str, R"\.(:\.)+") == ["a","ba.",".cba","dcba",""]
+                @test split(str, R"\.(:\.)+"; keepempty=false) == ["a","ba.",".cba","dcba"]
+                @test split(str, R"\.+:\.+") == ["a","ba","cba",":.dcba",""]
+                @test split(str, R"\.+:\.+"; keepempty=false) == ["a","ba","cba",":.dcba"]
+            end
+
+            # zero-width splits
+
+            @test split(ST(""), R"") == [""]
+            @test split(abc,  R"") == ["a","b","c"]
+            @test split(abcd, R"b?") == ["a","c","d"]
+            @test split(abcd, R"b*") == ["a","c","d"]
+            @test split(abcd, R"b+") == ["a","cd"]
+            @test split(abcd, R"b?c?") == ["a","d"]
+            @test split(abcd, R"[bc]?") == ["a","","d"]
+            @test split(abcd, R"a*") == ["","b","c","d"]
+            @test split(abcd, R"a+") == ["","bcd"]
+            @test split(abcd, R"d*") == ["a","b","c",""]
+            @test split(abcd, R"d+") == [abc,""]
+            @test split(abcd, R"[ad]?") == ["","b","c",""]
         end
 
-        # zero-width splits
+        @testset "replace" begin
+            @test replace(abcd, R"b?" => "^") == "^a^c^d^"
+            @test replace(abcd, R"b+" => "^") == "a^cd"
+            @test replace(abcd, R"b?c?" => "^") == "^a^d^"
+            @test replace(abcd, R"[bc]?" => "^") == "^a^^d^"
 
-        @test split(ST(""), R"") == [""]
-        @test split(abc,  R"") == ["a","b","c"]
-        @test split(abcd, R"b?") == ["a","c","d"]
-        @test split(abcd, R"b*") == ["a","c","d"]
-        @test split(abcd, R"b+") == ["a","cd"]
-        @test split(abcd, R"b?c?") == ["a","d"]
-        @test split(abcd, R"[bc]?") == ["a","","d"]
-        @test split(abcd, R"a*") == ["","b","c","d"]
-        @test split(abcd, R"a+") == ["","bcd"]
-        @test split(abcd, R"d*") == ["a","b","c",""]
-        @test split(abcd, R"d+") == [abc,""]
-        @test split(abcd, R"[ad]?") == ["","b","c",""]
-    end
+            @test replace("foobarfoo", R"(fo|ba)" => "xx") == "xxoxxrxxo"
+            @test replace("foobarfoo", R"(foo|ba)" => bar) == "barbarrbar"
 
-    @testset "replace" begin
-        @test replace(abcd, R"b?" => "^") == "^a^c^d^"
-        @test replace(abcd, R"b+" => "^") == "a^cd"
-        @test replace(abcd, R"b?c?" => "^") == "^a^d^"
-        @test replace(abcd, R"[bc]?" => "^") == "^a^^d^"
+            @test replace(ST("äƀçđ"), R"ƀ?" => "π") == "πäπçπđπ"
+            @test replace(ST("äƀçđ"), R"ƀ+" => "π") == "äπçđ"
+            @test replace(ST("äƀçđ"), R"ƀ?ç?" => "π") == "πäπđπ"
+            @test replace(ST("äƀçđ"), R"[ƀç]?" => "π") == "πäππđπ"
 
-        @test replace("foobarfoo", R"(fo|ba)" => "xx") == "xxoxxrxxo"
-        @test replace("foobarfoo", R"(foo|ba)" => bar) == "barbarrbar"
+            @test replace(ST("foobarfoo"), R"(fo|ba)" => "ẍẍ") == "ẍẍoẍẍrẍẍo"
 
-        @test replace(ST("äƀçđ"), R"ƀ?" => "π") == "πäπçπđπ"
-        @test replace(ST("äƀçđ"), R"ƀ+" => "π") == "äπçđ"
-        @test replace(ST("äƀçđ"), R"ƀ?ç?" => "π") == "πäπđπ"
-        @test replace(ST("äƀçđ"), R"[ƀç]?" => "π") == "πäππđπ"
+            @test replace(ST("ḟøøbarḟøø"), R"(ḟø|ba)" => "xx") == "xxøxxrxxø"
+            @test replace(ST("ḟøøbarḟøø"), R"(ḟøø|ba)" => bar) == "barbarrbar"
 
-        @test replace(ST("foobarfoo"), R"(fo|ba)" => "ẍẍ") == "ẍẍoẍẍrẍẍo"
+            @test replace(ST("fooƀäṙfoo"), R"(fo|ƀä)" => "xx") == "xxoxxṙxxo"
+            @test replace(ST("fooƀäṙfoo"), R"(foo|ƀä)" => "ƀäṙ") == "ƀäṙƀäṙṙƀäṙ"
 
-        @test replace(ST("ḟøøbarḟøø"), R"(ḟø|ba)" => "xx") == "xxøxxrxxø"
-        @test replace(ST("ḟøøbarḟøø"), R"(ḟøø|ba)" => bar) == "barbarrbar"
+            @test replace(ST("ḟøøƀäṙḟøø"), R"(ḟø|ƀä)" => "xx") == "xxøxxṙxxø"
+            @test replace(ST("ḟøøƀäṙḟøø"), R"(ḟøø|ƀä)" => "ƀäṙ") == "ƀäṙƀäṙṙƀäṙ"
 
-        @test replace(ST("fooƀäṙfoo"), R"(fo|ƀä)" => "xx") == "xxoxxṙxxo"
-        @test replace(ST("fooƀäṙfoo"), R"(foo|ƀä)" => "ƀäṙ") == "ƀäṙƀäṙṙƀäṙ"
-
-        @test replace(ST("ḟøøƀäṙḟøø"), R"(ḟø|ƀä)" => "xx") == "xxøxxṙxxø"
-        @test replace(ST("ḟøøƀäṙḟøø"), R"(ḟøø|ƀä)" => "ƀäṙ") == "ƀäṙƀäṙṙƀäṙ"
-
-        # for Char pattern call Char replacement function
-        @test replace(ST("a"), R"a" => typeof) == "SubString{$ST}"
+            # for Char pattern call Char replacement function
+            @test replace(ST("a"), R"a" => typeof) == "SubString{$ST}"
+        end
     end
 end
