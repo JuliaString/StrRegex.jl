@@ -1,12 +1,13 @@
-#=
+__precompile__()
+using Strs
+
+"""
 Regex functions for Str strings
 
 Copyright 2018 Gandalf Software, Inc., Scott P. Jones, and other contributors to the Julia language
 Licensed under MIT License, see LICENSE.md
 Based in part on julia/base/regex.jl and julia/base/pcre.jl
-=#
-
-__precompile__()
+"""
 module StrRegex
 
 using Strs
@@ -21,6 +22,8 @@ using Base: RefValue, replace_err, SubstitutionString
 
 using PCRE2
 const PCRE = PCRE2
+
+const deb = RefValue(false)
 
 const MATCH_CONTEXT = [(C_NULL,C_NULL,C_NULL)]
 
@@ -45,8 +48,13 @@ end
 const DEFAULT_COMPILER_OPTS = PCRE.ALT_BSUX
 const DEFAULT_MATCH_OPTS    = 0
 
-import Base: Regex, match, compile, eachmatch, show, getindex, eltype, start, done, next, ==
-import Base: hash, IteratorSize
+import Base: Regex, match, compile, eachmatch, show, getindex, eltype, start, done, next, ==, hash
+@static if V6_COMPAT
+    import Base: iteratorsize
+    const IteratorSize = iteratorsize
+else
+    import Base: IteratorSize
+end
 
 export RegexStr, RegexStrMatch
 
@@ -272,6 +280,12 @@ function getindex(m::RegexStrMatch{T}, name::Symbol) where {T}
     m[idx]
 end
 
+function outtab(tab)
+    for rt in tab
+        print(rt == C_NULL ? "0 " : "0x" * Strs.outhex(reinterpret(UInt, rt)) * " ")
+    end
+end
+
 getindex(m::RegexStrMatch, name::AbstractString) = m[Symbol(name)]
 
 function compile(::Type{C}, pattern, regex::RegexStr) where {C<:Regex_CSEs}
@@ -281,10 +295,8 @@ function compile(::Type{C}, pattern, regex::RegexStr) where {C<:Regex_CSEs}
     if (re = regex.table[nm]) == C_NULL
         cvtcomp = regex.compile_options | comp_add[nm]
         pat = convert(Str{C,Nothing,Nothing,Nothing}, pattern)
-        #print("nm=$nm, comp=$cvtcomp, $(typeof(pat))")
         re = PCRE.compile(pat, cvtcomp)
         regex.table = _update_table(regex.table, re, nm)
-        #println(" => $re, $(regex.table)")
         PCRE.jit_compile(T, re)
     end
     mt = regex.match[Threads.threadid()]
@@ -384,9 +396,8 @@ get_ovec(::Type{T}, re::RegexStr) where {T<:CodeUnitTypes} =
 get_ovec(::Type{C}, re::RegexStr) where {C<:CSE} = get_ovec(codeunit(C), re)
 
 
-function _match(::Type{C}, re, str, idx, add_opts) where {C<:CSE}
-    #println("_match($C, $re, $str, $idx, $add_opts)")
-    comp_exec(C, re, str, idx - 1, add_opts) || return nothing
+function _match(::Type{C}, re, str, idx, opts) where {C<:CSE}
+    comp_exec(C, re, str, idx - 1, opts) || return nothing
     ov = get_ovec(C, re)
     n = div(length(ov),2) - 1
     rng = get_range(ov, str)
@@ -396,19 +407,24 @@ function _match(::Type{C}, re, str, idx, add_opts) where {C<:CSE}
     RegexStrMatch(mat, cap, rng.start, Int[ ov[2*i+1]+1 for i=1:n ], re)
 end
 
-match(re::T, str::S, idx::Integer,
-      add_opts::UInt32=UInt32(0)) where {T<:RegexTypes,S<:MaybeSub{<:Str}} =
-    error("$T not supported yet on $S type")
+regex_type_error(T, S) =
+    throw(ArgumentError("$T matching is not supported for $S; use UniStr(s) to convert"))
 
-match(re::T, str::MaybeSub{<:Str{C}}, idx::Integer, add_opts::UInt32=UInt32(0)
-      ) where {T<:RegexTypes,C<:Regex_CSEs} =
-    _match(basecse(C), re, str, Int(idx), add_opts)
+match(re::Regex, str::MaybeSub{<:Str}, idx::Integer, add_opts=0) =
+    regex_type_error(Regex, typeof(str))
 
-regex_type_error() = throw(ArgumentError(
-    "regex matching is only available for String or Str types " *
-    "(and SubString of those types); use UniStr(s) to convert"))
+match(re::Regex, str::MaybeSub{<:Str{<:Regex_CSEs}}, idx::Integer, add_opts=0) =
+    _match(basecse(str), re, str, Int(idx), UInt32(add_opts))
 
-match(r::RegexStr, s::AbstractString, i::Integer, add_opts::UInt32=UInt32(0)) = regex_type_error()
+match(r::RegexStr, str::AbstractString, idx::Integer, add_opts=0) =
+    regex_type_error(RegexStr, typeof(str))
+
+match(re::RegexStr, str::MaybeSub{<:Str}, idx::Integer, add_opts=0) =
+    _match(basecse(str), re, str, Int(idx), UInt32(add_opts))
+
+match(re::RegexStr, str::MaybeSub{String}, idx::Integer, add_opts=0) =
+    _match(RawUTF8CSE, re, str, Int(idx), UInt32(add_opts))
+
 
 match(re::Regex, str::MaybeSub{<:Str})   = match(re, str, 1)
 match(re::RegexStr, str::AbstractString) = match(re, str, 1)
@@ -423,7 +439,8 @@ match(re::RegexStr, str::AbstractString) = match(re, str, 1)
      ? __find(C, re, str, idx-1)
      : (@boundscheck boundserr(str, idx) ; return _not_found))
 
-find(::Type{Fwd}, re::RegexTypes, str::AbstractString, idx::Integer) = regex_type_error()
+find(::Type{Fwd}, re::RegexTypes, str::AbstractString, idx::Integer) =
+    regex_type_error(typeof(re), typeof(str))
 
 find(::Type{Fwd}, re::RegexTypes, str::MaybeSub{<:Str{C}}, idx::Integer) where {C<:Regex_CSEs} =
     _find(C, re, str, idx)
@@ -562,7 +579,7 @@ end
 else
 function next(itr::RegexStrMatchIterator, prev_match)
     opts_nonempty = UInt32(PCRE.ANCHORED | PCRE.NOTEMPTY_ATSTART)
-    if isempty(prev_match.match)
+    if is_empty(prev_match.match)
         offset = prev_match.offset + (itr.overlap ? 0 : ncodeunits(prev_match.match))
         while ((mat = match(itr.regex, itr.string, offset, opts_nonempty) === nothing) &&
                prevempty && offset <= sizeof(itr.string))
@@ -583,47 +600,56 @@ function next(itr::RegexStrMatchIterator, prev_match)
 end
 end
 
+@static if V6_COMPAT
+eachmatch(re::RegexStr, str::AbstractString, ov::Union{Bool,Nothing}=nothing; overlap = false) =
+    RegexStrMatchIterator(re, str, ov === nothing ? overlap : ov)
+else
 eachmatch(re::RegexStr, str::AbstractString; overlap = false) =
     RegexStrMatchIterator(re, str, overlap)
+end
 
 using Strs: __split, __rsplit, __replace, splitarr, checkkeep
 import Strs: split, rsplit, replace
 
-split(str::MaybeSub{<:Str{C}}, splitter::RegexStr;
-      limit::Integer=0, keepempty::Bool=true, keep::Union{Nothing,Bool}=nothing) where {C<:CSE} =
-    __split(str, splitter, limit, checkkeep(keepempty, keep, :split), splitarr(C))
-rsplit(str::MaybeSub{<:Str{C}}, splitter::RegexStr;
-      limit::Integer=0, keepempty::Bool=true, keep::Union{Nothing,Bool}=nothing) where {C<:CSE} =
-    __rsplit(str, splitter, limit, checkkeep(keepempty, keep, :rsplit), splitarr(C))
-replace(str::MaybeSub{<:Str}, pat_repl::Pair{RegexStr}; count::Integer=typemax(Int)) =
-    __replace(str, pat_repl; count=count)
+const MS_Str    = MaybeSub{<:Str}
+const MS_String = MaybeSub{String}
 
-split(str::MaybeSub{<:Str{C}}, splitter::Regex;
-      limit::Integer=0, keepempty::Bool=true, keep::Union{Nothing,Bool}=nothing) where {C<:CSE} =
-    __split(str, splitter, limit, checkkeep(keepempty, keep, :split), splitarr(C))
-rsplit(str::MaybeSub{<:Str{C}}, splitter::Regex;
-      limit::Integer=0, keepempty::Bool=true, keep::Union{Nothing,Bool}=nothing) where {C<:CSE} =
-    __rsplit(str, splitter, limit, checkkeep(keepempty, keep, :rsplit), splitarr(C))
-replace(str::MaybeSub{<:Str}, pat_repl::Pair{Regex}; count::Integer=typemax(Int)) =
-    __replace(str, pat_repl; count=count)
+split(str::MS_Str, splitter::Regex;
+      limit::Integer=0, keepempty::Bool=true, keep::Union{Nothing,Bool}=nothing) =
+    __split(str, splitter, limit, checkkeep(keepempty, keep, :split), splitarr(str))
+split(str::MS_Str, splitter::RegexStr;
+      limit::Integer=0, keepempty::Bool=true, keep::Union{Nothing,Bool}=nothing) =
+    __split(str, splitter, limit, checkkeep(keepempty, keep, :split), splitarr(str))
+split(str::MS_String, splitter::RegexStr;
+      limit::Integer=0, keepempty::Bool=true, keep::Union{Nothing,Bool}=nothing) =
+    __split(str, splitter, limit, checkkeep(keepempty, keep, :split), splitarr(str))
 
-split(str::String, splitter::RegexStr;
+rsplit(str::MS_Str, splitter::Regex;
       limit::Integer=0, keepempty::Bool=true, keep::Union{Nothing,Bool}=nothing) =
-    __split(str, splitter, limit, checkkeep(keepempty, keep, :split), splitarr(RawUTF8CSE))
-rsplit(str::String, splitter::RegexStr;
+    __rsplit(str, splitter, limit, checkkeep(keepempty, keep, :rsplit), splitarr(str))
+rsplit(str::MS_Str, splitter::RegexStr;
       limit::Integer=0, keepempty::Bool=true, keep::Union{Nothing,Bool}=nothing) =
-    __rsplit(str, splitter, limit, checkkeep(keepempty, keep, :rsplit), splitarr(RawUTF8CSE))
+    __rsplit(str, splitter, limit, checkkeep(keepempty, keep, :rsplit), splitarr(str))
+rsplit(str::MS_String, splitter::RegexStr;
+      limit::Integer=0, keepempty::Bool=true, keep::Union{Nothing,Bool}=nothing) =
+    __rsplit(str, splitter, limit, checkkeep(keepempty, keep, :rsplit), splitarr(str))
+
+replace(str::MS_Str, pat_repl::Pair{Regex}; count::Integer=typemax(Int)) =
+    __replace(str, pat_repl; count=count)
+replace(str::MS_Str, pat_repl::Pair{RegexStr}; count::Integer=typemax(Int)) =
+    __replace(str, pat_repl; count=count)
 replace(str::String, pat_repl::Pair{RegexStr}; count::Integer=typemax(Int)) =
     __replace(str, pat_repl; count=count)
-
-split(str::SubString{String}, splitter::RegexStr;
-      limit::Integer=0, keepempty::Bool=true, keep::Union{Nothing,Bool}=nothing) =
-    __split(str, splitter, limit, checkkeep(keepempty, keep, :split), splitarr(RawUTF8CSE))
-rsplit(str::SubString{String}, splitter::RegexStr;
-      limit::Integer=0, keepempty::Bool=true, keep::Union{Nothing,Bool}=nothing) =
-    __rsplit(str, splitter, limit, checkkeep(keepempty, keep, :rsplit), splitarr(RawUTF8CSE))
 replace(str::SubString{String}, pat_repl::Pair{RegexStr}; count::Integer=typemax(Int)) =
     __replace(str, pat_repl; count=count)
+@static if V6_COMPAT
+replace(str::MS_Str, pat::Regex, repl; count::Integer=typemax(Int)) =
+    __replace(str, pat => repl; count=count)
+replace(str::MS_Str, pat::RegexStr, repl; count::Integer=typemax(Int)) =
+    __replace(str, pat => repl; count=count)
+replace(str::MS_String, pat::RegexStr, repl; count::Integer=typemax(Int)) =
+    __replace(str, pat => repl; count=count)
+end
 
 
 ## comparison ##
@@ -647,4 +673,10 @@ _occurs_in(r::RegexTypes, s::MaybeSub{<:Str{C}}, off::Integer) where {C<:Regex_C
 occurs_in(needle::RegexStr, hay::AbstractString; off::Integer=0) = _occurs_in(needle, hay, off)
 occurs_in(needle::Regex, hay::MaybeSub{<:Str}; off::Integer=0)   = _occurs_in(needle, hay, off)
 
-end # module
+Base.contains(hay::AbstractString, pat::RegexStr) = occurs_in(pat, hay)
+
+@static if V6_COMPAT && !method_exists(contains, (AbstractString, Regex))
+    Base.contains(hay::AbstractString, pat::Regex) = occurs_in(pat, hay)
+end
+
+end # module StrRegex

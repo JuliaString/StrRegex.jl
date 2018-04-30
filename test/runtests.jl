@@ -1,4 +1,3 @@
-# This file includes code that was formerly a part of Julia.
 # License is MIT: LICENSE.md
 
 using Strs
@@ -30,8 +29,8 @@ const UnicodeStringTypes = (String, UTF8Str, UTF16Str, UTF32Str, UCS2Str)
 const ASCIIStringTypes = # (String, UTF8Str, ASCIIStr, LatinStr, UCS2Str, UTF32Str)
     (UnicodeStringTypes..., ASCIIStr, LatinStr)
 
-function test2(str, list, umap::Union{Nothing,Vector{Int}}=nothing)
-    mymap = encoding(str) == encoding(UTF8Str) ? umap : nothing
+function test2(str, list, umap::Any=nothing)
+    mymap = (encoding(str) === encoding(UTF8Str) ? umap : nothing)
     for (pat, res) in list
         cvtres = cvt(res, mymap)
         (r = fnd(First, pat, str)) == cvtres ||
@@ -40,7 +39,7 @@ function test2(str, list, umap::Union{Nothing,Vector{Int}}=nothing)
     end
 end
 
-function test3(str, list, umap::Union{Nothing,Vector{Int}}=nothing)
+function test3(str, list, umap::Any=nothing)
     mymap = encoding(str) == encoding(UTF8Str) ? umap : nothing
     for (pat, beg, res) in list
         cvtbeg = cvt(beg, mymap)
@@ -55,7 +54,8 @@ const fbbstr = "foo,bar,baz"
 const astr = "Hello, world.\n"
 const u8str = "∀ ε > 0, ∃ δ > 0: |x-y| < δ ⇒ |f(x)-f(y)| < ε"
 
-const utf8map = collect(eachindex(u8str))
+# v0.6.2 returns a Vector{Any} for some reason, make sure it is converted to Vector{Int}
+const utf8map = convert(Vector{Int}, collect(eachindex(u8str)))
 
 @testset "ASCII Regex Tests" begin
     for T in ASCIIStringTypes
