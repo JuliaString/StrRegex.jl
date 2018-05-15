@@ -1,10 +1,8 @@
 # License is MIT: LICENSE.md
 
-using Strs
-using Strs: V6_COMPAT
-import Strs: check_string, UTF_ERR_SHORT, UnicodeError, codepoint_adj, codepoint_rng
-
-using StrRegex
+using APITools
+@api init
+@api extend StrAPI, CharSetEncodings, Chars, StrBase, StrRegex
 
 @static V6_COMPAT ? (using Base.Test) : (using Test, Random, Unicode)
 
@@ -12,12 +10,10 @@ const IndexError = isdefined(Base, :StringIndexError) ? StringIndexError : Unico
 
 # Add definitions not present in v0.6.2 for GenericString
 @static if V6_COMPAT
-    const Nothing = Void
-    Strs.ncodeunits(s::GenericString) = ncodeunits(s.string)
-    Strs.codeunit(s::GenericString) = codeunit(s.string)
-    Strs.codeunit(s::GenericString, i::Integer) = codeunit(s.string, i)
+    ncodeunits(s::GenericString) = ncodeunits(s.string)
+    codeunit(s::GenericString) = codeunit(s.string)
+    codeunit(s::GenericString, i::Integer) = codeunit(s.string, i)
 end
-const CodeUnits = @static V6_COMPAT ? Strs.CodeUnits : Base.CodeUnits
 
 cvt(v::Integer, m::Nothing) = v
 cvt(v::Integer, m::Vector{Int}) = v < 1 ? v : m[v]
@@ -121,7 +117,7 @@ end
     end
 end
 
-const RegexStrings = (ASCIIStr, BinaryStr, Text1Str, LatinStr, Strs._LatinStr, UTF8Str)
+const RegexStrings = (ASCIIStr, BinaryStr, Text1Str, LatinStr, _LatinStr, UTF8Str)
 
 @static if V6_COMPAT
     collect_eachmatch(re, str; overlap=false) =
@@ -181,7 +177,7 @@ target = """71.163.72.113 - - [30/Jul/2014:16:40:55 -0700] "GET emptymind.org/th
         # Named subpatterns
         let m = match(R"(?<a>.)(.)(?<b>.)", T("xyz"))
             @test (m[:a], m[2], m["b"]) == ("x", "y", "z")
-            typ = T === Strs._LatinStr ? ASCIIStr : T
+            typ = T === _LatinStr ? ASCIIStr : T
             @test sprint(show, m) == "RegexStrMatch{$typ}(\"xyz\", a=\"x\", 2=\"y\", b=\"z\")"
         end
         # Backcapture reference in substitution string

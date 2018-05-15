@@ -1,6 +1,4 @@
-__precompile__()
-using Strs
-
+__precompile__(true)
 """
 Regex functions for Str strings
 
@@ -10,13 +8,17 @@ Based in part on julia/base/regex.jl and julia/base/pcre.jl
 """
 module StrRegex
 
-using Strs
-using Strs: V6_COMPAT, MaybeSub, _not_found, bytoff, boundserr, basecse, CodeUnitTypes
-using Strs: _LatinCSE, Latin_CSEs, Binary_CSEs, UCS2_CSEs, UTF8_CSEs, UTF32_CSEs
-using Strs: is_latin, is_bmp, is_unicode
-import Strs: find, occurs_in, _occurs_in
+using APITools
+@api init
 
-@static V6_COMPAT && (const Nothing = Void ; const Cvoid = Void )
+@api extend StrAPI, CharSetEncodings, Chars, StrBase
+
+@api base Regex, match, compile, eachmatch
+
+@api define_public RegexStr, RegexStrMatch
+@eval @api define_public $(Symbol("@R_str"))
+
+const _not_found = StrBase._not_found
 
 using Base: RefValue, replace_err, SubstitutionString
 
@@ -48,16 +50,6 @@ end
 const DEFAULT_COMPILER_OPTS = PCRE.ALT_BSUX
 const DEFAULT_MATCH_OPTS    = 0
 
-import Base: Regex, match, compile, eachmatch, show, getindex, eltype, start, done, next, ==, hash
-@static if V6_COMPAT
-    import Base: iteratorsize
-    const IteratorSize = iteratorsize
-else
-    import Base: IteratorSize
-end
-
-export RegexStr, RegexStrMatch
-
 const Binary_Regex_CSEs = Union{ASCIICSE,BinaryCSE,Text1CSE,Text2CSE,Text4CSE}
 const Regex_CSEs = Union{Binary_Regex_CSEs,Latin_CSEs,UTF8_CSEs,UCS2_CSEs,UTF16CSE, UTF32_CSEs}
 
@@ -67,8 +59,7 @@ const _UCP   = PCRE.UCP
 
 _clear_opts(opt) = UInt32(opt) & ~(_VALID | _UTF | _UCP)
 
-const comp_add   = UInt32[_VALID|_UTF|_UCP, _VALID|_UTF|_UCP, _VALID|_UTF|_UCP,
-                          0, 0, 0, _VALID|_UCP, _VALID|_UCP, _UTF|_UCP]
+const comp_add   = UInt32[_VALID|_UTF, _VALID|_UTF, _VALID|_UTF, 0, 0, 0, _VALID, _VALID, _UTF]
 const match_add  = UInt32[_VALID, _VALID, _VALID, 0, 0, 0, _VALID, _VALID, 0]
 
 # Convert character set encoding types into indices
@@ -96,9 +87,9 @@ fin(exp) = (@static V6_COMPAT ? finalizer(exp, finalize!) : finalizer(finalize!,
 
 # There are 9 valid combinations of size (8,16,32), UTF/no-UTF, UCP/no-UCP, and NO_UTF_CHECK
 # 
-# 1 - UTF8                 8,UTF,UCP
-# 2 - UTF16               16,UTF,UCP
-# 3 - UTF32/_UTF32        32,UTF,UCP
+# 1 - UTF8                 8,UTF,UCP,NO_UTF_CHECK
+# 2 - UTF16               16,UTF,UCP,NO_UTF_CHECK
+# 3 - UTF32/_UTF32        32,UTF,UCP,NO_UTF_CHECK
 
 # 4 - Text1/Binary/ASCII   8
 # 5 - Text2               16
@@ -106,7 +97,7 @@ fin(exp) = (@static V6_COMPAT ? finalizer(exp, finalize!) : finalizer(finalize!,
 
 # 7 - Latin/_Latin         8,UCP
 # 8 - UCS2/_UCS2          16,UCP
-# 9 - RawUTF8CSE           8,UTF,UCP,NO_UTF_CHECK
+# 9 - RawUTF8CSE           8,UTF
 
 # Match tables only need to be allocated for each size (8,16,32) and for each thread
 mutable struct MatchTab
@@ -115,7 +106,7 @@ mutable struct MatchTab
     MatchTab() = new((C_NULL, C_NULL, C_NULL), (Csize_t[], Csize_t[], Csize_t[]))
 end
 
-Strs.is_empty(::Type{T}, mt::MatchTab) where {T<:CodeUnitTypes} =
+is_empty(::Type{T}, mt::MatchTab) where {T<:CodeUnitTypes} =
     mt.match_data[codeunit_index(T)] == C_NULL
 
 md_free(::Type{T}, md) where {T<:CodeUnitTypes} =
@@ -131,7 +122,6 @@ function finalize!(mt::MatchTab)
     mt.match_data = (C_NULL, C_NULL, C_NULL)
     mt.ovec = (Csize_t[], Csize_t[], Csize_t[])
 end
-
 
 mutable struct RegexStr
     pattern::String
@@ -220,8 +210,6 @@ function cmp_all(re::RegexStr)
     re
 end
 
-export @R_str
-
 macro R_str(pattern, flags...) cmp_all(RegexStr(pattern, flags...)) end
 
 function show(io::IO, re::RegexStr)
@@ -282,7 +270,7 @@ end
 
 function outtab(tab)
     for rt in tab
-        print(rt == C_NULL ? "0 " : "0x" * Strs.outhex(reinterpret(UInt, rt)) * " ")
+        print(rt == C_NULL ? "0 " : "0x" * outhex(reinterpret(UInt, rt)) * " ")
     end
 end
 
@@ -353,7 +341,7 @@ end
 
 function exec(C, re::RegexStr, subject, offset, options)
     #print("exec($re, \"$subject\", $offset, $options, match_data)")
-    PCRE.@preserve subject begin
+    @preserve subject begin
         pnt = pointer(subject)
         siz = ncodeunits(subject)
         T = eltype(pnt)
@@ -372,7 +360,7 @@ function exec(C, re::RegexStr, subject, offset, options)
 end
 
 function exec(C, re::Regex, subject, offset, options)
-    PCRE.@preserve subject begin
+    @preserve subject begin
         pnt = pointer(subject)
         siz = ncodeunits(subject)
         T = eltype(pnt)
@@ -461,7 +449,7 @@ find(::Type{First}, re::RegexTypes, str::MaybeSub{String}) =
 function _write_capture(io, ::Type{C}, group::Integer, md) where {C<:CSE}
     T = codeunit(C)
     len = PCRE.sub_length_bynumber(T, md, group)
-    buf, out = Strs._allocate(T, len)
+    buf, out = _allocate(T, len)
     PCRE.sub_copy_bynumber(T, md, group, out, len+1)
     print(io, Str(C, buf))
 end
@@ -608,9 +596,6 @@ eachmatch(re::RegexStr, str::AbstractString; overlap = false) =
     RegexStrMatchIterator(re, str, overlap)
 end
 
-using Strs: __split, __rsplit, __replace, splitarr, checkkeep
-import Strs: split, rsplit, replace
-
 const MS_Str    = MaybeSub{<:Str}
 const MS_String = MaybeSub{String}
 
@@ -673,10 +658,6 @@ _occurs_in(r::RegexTypes, s::MaybeSub{<:Str{C}}, off::Integer) where {C<:Regex_C
 occurs_in(needle::RegexStr, hay::AbstractString; off::Integer=0) = _occurs_in(needle, hay, off)
 occurs_in(needle::Regex, hay::MaybeSub{<:Str}; off::Integer=0)   = _occurs_in(needle, hay, off)
 
-Base.contains(hay::AbstractString, pat::RegexStr) = occurs_in(pat, hay)
-
-@static if V6_COMPAT && !method_exists(contains, (AbstractString, Regex))
-    Base.contains(hay::AbstractString, pat::Regex) = occurs_in(pat, hay)
-end
+@api freeze
 
 end # module StrRegex
