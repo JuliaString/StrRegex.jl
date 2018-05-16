@@ -8,6 +8,8 @@ Based in part on julia/base/regex.jl and julia/base/pcre.jl
 """
 module StrRegex
 
+const LETS_BE_PIRATES = false
+
 using APITools
 @api init
 
@@ -73,6 +75,7 @@ _match_type(::Type{Text4CSE})      = 6
 _match_type(::Type{<:Latin_CSEs})  = 7
 _match_type(::Type{<:UCS2_CSEs})   = 8
 _match_type(::Type{RawUTF8CSE})    = 9
+_match_type(::Type{RawUTF16CSE})   = 10
 
 @noinline _check_compile(options) =
     (options & ~PCRE.COMPILE_MASK) == 0 ? UInt32(options) :
@@ -85,19 +88,20 @@ function finalize! end
 
 fin(exp) = (@static V6_COMPAT ? finalizer(exp, finalize!) : finalizer(finalize!, exp) ; exp)
 
-# There are 9 valid combinations of size (8,16,32), UTF/no-UTF, UCP/no-UCP, and NO_UTF_CHECK
+# There are 10 valid combinations of size (8,16,32), UTF/no-UTF, possibly UCP, and NO_UTF_CHECK
 # 
-# 1 - UTF8                 8,UTF,UCP,NO_UTF_CHECK
-# 2 - UTF16               16,UTF,UCP,NO_UTF_CHECK
-# 3 - UTF32/_UTF32        32,UTF,UCP,NO_UTF_CHECK
+#  1 - UTF8                 8,UTF,NO_UTF_CHECK (UCP?)
+#  2 - UTF16               16,UTF,NO_UTF_CHECK (UCP?)
+#  3 - UTF32/_UTF32        32,UTF,NO_UTF_CHECK (UCP?)
 
-# 4 - Text1/Binary/ASCII   8
-# 5 - Text2               16
-# 6 - Text4               32
+#  4 - Text1/Binary/ASCII   8
+#  5 - Text2               16
+#  6 - Text4               32
 
-# 7 - Latin/_Latin         8,UCP
-# 8 - UCS2/_UCS2          16,UCP
-# 9 - RawUTF8CSE           8,UTF
+#  7 - Latin/_Latin         8 (UCP?)
+#  8 - UCS2/_UCS2          16 (UCP?)
+#  9 - RawUTF8CSE           8,UTF (UCP?)
+# 10 - RawUTF16CSE         16,UTF (UCP?)
 
 # Match tables only need to be allocated for each size (8,16,32) and for each thread
 mutable struct MatchTab
@@ -127,12 +131,12 @@ mutable struct RegexStr
     pattern::String
     compile_options::UInt32
     match_options::UInt32
-    table::NTuple{9, Ptr{Cvoid}}
+    table::NTuple{10, Ptr{Cvoid}}
     match::Vector{MatchTab}
 
     function RegexStr(pattern::AbstractString, compile_options::Integer, match_options::Integer)
         re = new(String(pattern), _check_compile(compile_options), _check_match(match_options),
-                 (C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL),
+                 (C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL),
                  [MatchTab() for i=1:Base.Threads.nthreads()])
         compile(cse(pattern), pattern, re)
         fin(re)
@@ -156,7 +160,8 @@ _update_match(t, v, n) = n == 1 ? (v, t[2], t[3]) : n == 2 ? (t[1], v, t[3]) : (
 _update_table(t, v, n) =
     (n == 1 ? v : t[1], n == 2 ? v : t[2], n == 3 ? v : t[3],
      n == 4 ? v : t[4], n == 5 ? v : t[5], n == 6 ? v : t[6],
-     n == 7 ? v : t[7], n == 8 ? v : t[8], n == 9 ? v : t[9])
+     n == 7 ? v : t[7], n == 8 ? v : t[8], n == 9 ? v : t[9],
+     n == 10 ? v : t[10])
 
 const RegexTypes = Union{Regex, RegexStr}
 
@@ -167,6 +172,7 @@ function _add_compile_options(flags)
                    f=='m' ? PCRE.MULTILINE :
                    f=='s' ? PCRE.DOTALL    :
                    f=='x' ? PCRE.EXTENDED  :
+                   f=='u' ? PCRE.UCP       :
                    throw(ArgumentError("unknown regex flag: $f"))
     end
     options
@@ -177,16 +183,18 @@ RegexStr(pattern::AbstractString) =
 RegexStr(pattern::AbstractString, flags::AbstractString) =
     RegexStr(pattern, _add_compile_options(flags), DEFAULT_MATCH_OPTS)
 
-Regex(pattern::MaybeSub{<:Str}, co, mo) = RegexStr(pattern, co, mo)
-Regex(pattern::MaybeSub{<:Str}, flags::AbstractString) = RegexStr(pattern, flags)
-Regex(pattern::MaybeSub{<:Str}) = RegexStr(pattern)
-
-#=
-# Yes, this is type piracy, but it is needed to make all string types work together easily
-Regex(pattern::AbstractString, co::Integer, mo::Integer) = RegexStr(pattern, co, mo)
-Regex(pattern::AbstractString, flags::AbstractString) = RegexStr(pattern, flags)
-Regex(pattern::AbstractString) = RegexStr(pattern)
-=#
+@static if isdefined(:LETS_BE_PIRATES)
+    import Base.@r_str
+    macro r_str(pattern::ANY, flags...) ; cmp_all(RegexStr(pattern, flags...)) ; end
+    # Yes, this is type piracy, but it is needed to make all string types work together easily
+    Regex(pattern::AbstractString, co::Integer, mo::Integer) = RegexStr(pattern, co, mo)
+    Regex(pattern::AbstractString, flags::AbstractString) = RegexStr(pattern, flags)
+    Regex(pattern::AbstractString) = RegexStr(pattern)
+else
+    Regex(pattern::MaybeSub{<:Str}, co, mo) = RegexStr(pattern, co, mo)
+    Regex(pattern::MaybeSub{<:Str}, flags::AbstractString) = RegexStr(pattern, flags)
+    Regex(pattern::MaybeSub{<:Str}) = RegexStr(pattern)
+end
 
 function check_compile(::Type{C}, re::RegexStr) where {C<:CSE}
     try
