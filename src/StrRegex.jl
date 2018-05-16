@@ -127,6 +127,9 @@ function finalize!(mt::MatchTab)
     mt.ovec = (Csize_t[], Csize_t[], Csize_t[])
 end
 
+const empty_table =
+    (C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL)
+
 mutable struct RegexStr
     pattern::String
     compile_options::UInt32
@@ -136,20 +139,19 @@ mutable struct RegexStr
 
     function RegexStr(pattern::AbstractString, compile_options::Integer, match_options::Integer)
         re = new(String(pattern), _check_compile(compile_options), _check_match(match_options),
-                 (C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL),
-                 [MatchTab() for i=1:Base.Threads.nthreads()])
+                 empty_table, [MatchTab() for i=1:Base.Threads.nthreads()])
         compile(cse(pattern), pattern, re)
         fin(re)
     end
 end
 
-const tabtype = (UInt8,UInt16,UInt32,UInt8,UInt16,UInt32,UInt8,UInt16,UInt8)
+const tabtype = (UInt8,UInt16,UInt32,UInt8,UInt16,UInt32,UInt8,UInt16,UInt8,UInt16)
 
 function finalize!(re::RegexStr)
     for (typ, r) in zip(tabtype, re.table)
         r == C_NULL || PCRE.code_free(typ, r)
     end
-    re.table = (C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL)
+    re.table = empty_table
     for m in re.match
         finalize!(m)
     end
@@ -183,7 +185,7 @@ RegexStr(pattern::AbstractString) =
 RegexStr(pattern::AbstractString, flags::AbstractString) =
     RegexStr(pattern, _add_compile_options(flags), DEFAULT_MATCH_OPTS)
 
-@static if isdefined(:LETS_BE_PIRATES)
+@static if isdefined(:LETS_BE_PIRATES) && LETS_BE_PIRATES
     import Base.@r_str
     macro r_str(pattern::ANY, flags...) ; cmp_all(RegexStr(pattern, flags...)) ; end
     # Yes, this is type piracy, but it is needed to make all string types work together easily
@@ -230,6 +232,7 @@ function show(io::IO, re::RegexStr)
         if (opts & PCRE.MULTILINE) != 0; print(io, 'm'); end
         if (opts & PCRE.DOTALL   ) != 0; print(io, 's'); end
         if (opts & PCRE.EXTENDED ) != 0; print(io, 'x'); end
+        if (opts & PCRE.UCP      ) != 0; print(io, 'u'); end
     else
         print(io, "RegexStr(")
         show(io, re.pattern)
