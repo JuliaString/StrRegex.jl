@@ -572,12 +572,14 @@ RegexStrMatchIterator(r::RegexStr, s::AbstractString) = RegexStrMatchIterator(r,
 compile(itr::RegexStrMatchIterator{T}) where {T} = (compile(cse(T), itr.regex); itr)
 eltype(::Type{RegexStrMatchIterator{T}}) where {T} = RegexStrMatch{T}
 start(itr::RegexStrMatchIterator) = match(itr.regex, itr.string, 1, UInt32(0))
+firstindex(itr::RegexStrMatchIterator) = match(itr.regex, itr.string, 1, UInt32(0))
 done(itr::RegexStrMatchIterator, prev_match) = (prev_match === nothing)
 IteratorSize(::Type{RegexStrMatchIterator{T}}) where {T<:AbstractString} = Base.SizeUnknown()
+const _iterate = @static NEW_ITERATE ? iterate : next
 
 # Assumes prev_match is not nothing
 @static if true
-function next(itr::RegexStrMatchIterator, prev_match)
+function _iterate(itr::RegexStrMatchIterator, prev_match)
     prevempty = isempty(prev_match.match)
 
     if itr.overlap
@@ -610,7 +612,7 @@ function next(itr::RegexStrMatchIterator, prev_match)
     (prev_match, nothing)
 end
 else
-function next(itr::RegexStrMatchIterator, prev_match)
+function _iterate(itr::RegexStrMatchIterator, prev_match)
     opts_nonempty = UInt32(PCRE.ANCHORED | PCRE.NOTEMPTY_ATSTART)
     if is_empty(prev_match.match)
         offset = prev_match.offset + (itr.overlap ? 0 : ncodeunits(prev_match.match))
