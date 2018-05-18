@@ -1,7 +1,7 @@
 # License is MIT: LICENSE.md
 
 using APITools
-@api init
+
 @api extend StrAPI, CharSetEncodings, Chars, StrBase, StrRegex
 
 @static V6_COMPAT ? (using Base.Test) : (using Test, Random, Unicode)

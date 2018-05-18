@@ -13,7 +13,6 @@ import Base.Threads
 const LETS_BE_PIRATES = false
 
 using APITools
-@api init
 
 @api extend StrAPI, CharSetEncodings, Chars, StrBase
 
