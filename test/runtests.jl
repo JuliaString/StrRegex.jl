@@ -2,9 +2,9 @@
 
 using APITools
 
-@api extend StrAPI, CharSetEncodings, Chars, StrBase, StrRegex
+@api test StrAPI, CharSetEncodings, Chars, StrBase, StrRegex
 
-@static V6_COMPAT ? (using Base.Test) : (using Test, Random, Unicode)
+@static V6_COMPAT || (using Random, Unicode)
 
 const IndexError = isdefined(Base, :StringIndexError) ? StringIndexError : UnicodeError
 

@@ -10,16 +10,15 @@ module StrRegex
 
 import Base.Threads
 
-const LETS_BE_PIRATES = false
-
 using APITools
 
 @api extend StrAPI, CharSetEncodings, Chars, StrBase
 
 @api base Regex, match, compile, eachmatch
 
-@api define_public RegexStr, RegexStrMatch
-@eval @api define_public $(Symbol("@r_str")), $(Symbol("@R_str"))
+@api public RegexStr, RegexStrMatch
+
+@eval @api public $(Symbol("@r_str")), $(Symbol("@R_str"))
 
 const _not_found = StrBase._not_found
 
@@ -206,7 +205,7 @@ RegexStr(pattern::AbstractString) =
 RegexStr(pattern::AbstractString, flags::AbstractString) =
     RegexStr(pattern, _add_compile_options(flags)..., DEFAULT_MATCH_OPTS)
 
-@static if isdefined(:LETS_BE_PIRATES) && LETS_BE_PIRATES
+@static if isdefined(Main, :LETS_BE_PIRATES) && eval(Main, :LETS_BE_PIRATES)
     import Base.@r_str
     macro r_str(pattern::ANY, flags...) ; cmp_all(RegexStr(pattern, flags...)) ; end
     # Yes, this is type piracy, but it is needed to make all string types work together easily
@@ -574,11 +573,36 @@ start(itr::RegexStrMatchIterator) = match(itr.regex, itr.string, 1, UInt32(0))
 firstindex(itr::RegexStrMatchIterator) = match(itr.regex, itr.string, 1, UInt32(0))
 done(itr::RegexStrMatchIterator, prev_match) = (prev_match === nothing)
 IteratorSize(::Type{RegexStrMatchIterator{T}}) where {T<:AbstractString} = Base.SizeUnknown()
-const _iterate = @static NEW_ITERATE ? iterate : next
 
+@static if NEW_ITERATE
+function iterate(itr::RegexStrMatchIterator, (offset,prevempty)=(1,false))
+    opts_nonempty = UInt32(PCRE.ANCHORED | PCRE.NOTEMPTY_ATSTART)
+    while true
+        mat = match(itr.regex, itr.string, offset, prevempty ? opts_nonempty : UInt32(0))
+
+        if mat === nothing
+            if prevempty && offset <= sizeof(itr.string)
+                offset = nextind(itr.string, offset)
+                prevempty = false
+                continue
+            else
+                break
+            end
+        else
+            if itr.overlap
+                offset = isempty(mat.match) ? mat.offset : nextind(itr.string, mat.offset)
+            else
+                offset = mat.offset + ncodeunits(mat.match)
+            end
+            return (mat, (offset, isempty(mat.match)))
+        end
+    end
+    nothing
+end
+else
 # Assumes prev_match is not nothing
 @static if true
-function _iterate(itr::RegexStrMatchIterator, prev_match)
+function next(itr::RegexStrMatchIterator, prev_match)
     prevempty = isempty(prev_match.match)
 
     if itr.overlap
@@ -611,7 +635,7 @@ function _iterate(itr::RegexStrMatchIterator, prev_match)
     (prev_match, nothing)
 end
 else
-function _iterate(itr::RegexStrMatchIterator, prev_match)
+function next(itr::RegexStrMatchIterator, prev_match)
     opts_nonempty = UInt32(PCRE.ANCHORED | PCRE.NOTEMPTY_ATSTART)
     if is_empty(prev_match.match)
         offset = prev_match.offset + (itr.overlap ? 0 : ncodeunits(prev_match.match))
@@ -631,6 +655,7 @@ function _iterate(itr::RegexStrMatchIterator, prev_match)
         end
     end
     (prev_match, mat)
+end
 end
 end
 
