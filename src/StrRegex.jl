@@ -61,21 +61,8 @@ const _UCP   = PCRE.UCP
 
 _clear_opts(opt) = UInt32(opt) & ~(_VALID | _UTF | _UCP)
 
-const comp_add   = UInt32[_VALID|_UTF, _VALID|_UTF, _VALID|_UTF, 0, 0, 0, _VALID, _VALID, _UTF]
-const match_add  = UInt32[_VALID, _VALID, _VALID, 0, 0, 0, _VALID, _VALID, 0]
-
-# Convert character set encoding types into indices
-_match_type(::Type{UTF8CSE})       = 1
-_match_type(::Type{UTF16CSE})      = 2
-_match_type(::Type{<:UTF32_CSEs})  = 3
-_match_type(::Type{ASCIICSE})      = 4
-_match_type(::Type{<:Binary_CSEs}) = 4
-_match_type(::Type{Text2CSE})      = 5
-_match_type(::Type{Text4CSE})      = 6
-_match_type(::Type{<:Latin_CSEs})  = 7
-_match_type(::Type{<:UCS2_CSEs})   = 8
-_match_type(::Type{RawUTF8CSE})    = 9
-_match_type(::Type{RawUTF16CSE})   = 10
+const comp_add   = (0%UInt32, _UCP, _UTF, _UCP|_UTF, _UTF|_VALID, _UCP|_UTF|_VALID)
+const match_add  = (0%UInt32, 0%UInt32, 0%UInt32, 0%UInt32, _VALID, _VALID)
 
 @noinline _check_compile(options) =
     (options & ~PCRE.COMPILE_MASK) == 0 ? UInt32(options) :
@@ -88,20 +75,35 @@ function finalize! end
 
 fin(exp) = (@static V6_COMPAT ? finalizer(exp, finalize!) : finalizer(finalize!, exp) ; exp)
 
-# There are 10 valid combinations of size (8,16,32), UTF/no-UTF, possibly UCP, and NO_UTF_CHECK
+# There are 18 valid combinations of size (8,16,32), UTF/no-UTF, possibly UCP, and NO_UTF_CHECK
 # 
-#  1 - UTF8                 8,UTF,NO_UTF_CHECK,UCP
-#  2 - UTF16               16,UTF,NO_UTF_CHECK,UCP
-#  3 - UTF32/_UTF32        32,UTF,NO_UTF_CHECK,UCP
+#  1 - Text1/Binary/ASCII   8
+#  2 - Latin/_Latin         8,UCP
+#  3                        8,UTF
+#  4 - RawUTF8CSE           8,UCP,UTF
+#  5                        8,UTF,NO_UTF_CHECK
+#  6 - UTF8                 8,UCP,UTF,NO_UTF_CHECK
 
-#  4 - Text1/Binary/ASCII   8
-#  5 - Text2               16
-#  6 - Text4               32
+#  1 - Text2               16
+#  2 - UCS2/_UCS2          16,UCP
+#  3                       16,UTF
+#  4 - RawUTF16CSE         16,UCP,UTF
+#  5                       16,UTF,NO_UTF_CHECK
+#  6 - UTF16               16,UCP,UTF,NO_UTF_CHECK
 
-#  7 - Latin/_Latin         8,UCP
-#  8 - UCS2/_UCS2          16,UCP
-#  9 - RawUTF8CSE           8,UTF,UCP
-# 10 - RawUTF16CSE         16,UTF,UCP
+#  1 - Text4               32
+#  2                       32,UCP
+#  3                       32,UTF
+#  4 - RawUTF32CSE         32,UCP,UTF
+#  5                       32,UTF,NO_UTF_CHECK
+#  6 - UTF32/_UTF32        32,UCP,UTF,NO_UTF_CHECK
+
+opt_index(::Type{C}) where {C<:CSE} = 3
+opt_index(::Type{C}) where {C<:Union{ASCIICSE, BinaryCSE, Text1CSE, Text2CSE, Text4CSE}} = 1
+opt_index(::Type{C}) where {C<:Union{RawUTF8CSE, RawUTF16CSE}} = 4
+opt_index(::Type{C}) where {C<:Union{UTF8CSE, UTF16CSE, UTF32CSE, _UTF32CSE}} = 6
+
+opt_index(::Type{S}) where {S<:AbstractString} = opt_index(cse(S))
 
 # Match tables only need to be allocated for each size (8,16,32) and for each thread
 mutable struct MatchTab
@@ -110,14 +112,8 @@ mutable struct MatchTab
     MatchTab() = new((C_NULL, C_NULL, C_NULL), (Csize_t[], Csize_t[], Csize_t[]))
 end
 
-is_empty(::Type{T}, mt::MatchTab) where {T<:CodeUnitTypes} =
-    mt.match_data[codeunit_index(T)] == C_NULL
-
 md_free(::Type{T}, md) where {T<:CodeUnitTypes} =
     md == C_NULL || PCRE.match_data_free(T, md)
-
-get_match_data(::Type{T}, mt::MatchTab) where {T<:CodeUnitTypes} =
-    mt.match_data[codeunit_index(T)]
 
 function finalize!(mt::MatchTab)
     md_free(UInt8,  mt.match_data[1])
@@ -127,8 +123,9 @@ function finalize!(mt::MatchTab)
     mt.ovec = (Csize_t[], Csize_t[], Csize_t[])
 end
 
-const empty_table =
-    (C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL)
+const empty_table = (C_NULL, C_NULL, C_NULL, C_NULL, C_NULL, C_NULL)
+
+const contextlock = Threads.SpinLock()
 
 mutable struct RegexStr
     pattern::String
@@ -137,7 +134,7 @@ mutable struct RegexStr
     negated_options::UInt32
     compilelock::Threads.SpinLock  # Controls creating cached compiled patterns
     matchlock::Threads.SpinLock    # Controls creating match tables
-    table::NTuple{10, Ptr{Cvoid}}
+    table::Vector{NTuple{6, Ptr{Cvoid}}}
     match::Vector{MatchTab}
 
     function RegexStr(pattern::AbstractString,
@@ -150,32 +147,39 @@ mutable struct RegexStr
                  _check_compile(negated_options),
                  Threads.SpinLock(),
                  Threads.SpinLock(),
-                 empty_table,
+                 [empty_table for i=1:6],
                  [MatchTab() for i=1:Threads.nthreads()])
         compile(cse(pattern), pattern, re)
         fin(re)
     end
 end
 
-const tabtype = (UInt8,UInt16,UInt32,UInt8,UInt16,UInt32,UInt8,UInt16,UInt8,UInt16)
+const tabtype = (UInt8,UInt16,UInt32)
+
+function _finalize!(re::RegexStr, i)
+    tab = re.table[i]
+    typ = tabtype[i]
+    for j = 1:6
+        (r = tab[j]) == C_NULL || PCRE.code_free(typ, r)
+    end
+    re.table[i] = empty_table
+end
 
 function finalize!(re::RegexStr)
-    for (typ, r) in zip(tabtype, re.table)
-        r == C_NULL || PCRE.code_free(typ, r)
-    end
-    re.table = empty_table
+    _finalize!(re, 1)
+    _finalize!(re, 2)
+    _finalize!(re, 3)
     for m in re.match
         finalize!(m)
     end
 end
 
-_update_match(t, v, n) = n == 1 ? (v, t[2], t[3]) : n == 2 ? (t[1], v, t[3]) : (t[1], t[2], v)
+_update_match(t, v, n) =
+    (n == 1 ? (v, t[2], t[3]) : n == 2 ? (t[1], v, t[3]) : (t[1], t[2], v))
 
 _update_table(t, v, n) =
     (n == 1 ? v : t[1], n == 2 ? v : t[2], n == 3 ? v : t[3],
-     n == 4 ? v : t[4], n == 5 ? v : t[5], n == 6 ? v : t[6],
-     n == 7 ? v : t[7], n == 8 ? v : t[8], n == 9 ? v : t[9],
-     n == 10 ? v : t[10])
+     n == 4 ? v : t[4], n == 5 ? v : t[5], n == 6 ? v : t[6])
 
 const RegexTypes = Union{Regex, RegexStr}
 
@@ -205,7 +209,7 @@ RegexStr(pattern::AbstractString) =
 RegexStr(pattern::AbstractString, flags::AbstractString) =
     RegexStr(pattern, _add_compile_options(flags)..., DEFAULT_MATCH_OPTS)
 
-@static if isdefined(Main, :LETS_BE_PIRATES) && eval(Main, :LETS_BE_PIRATES)
+@static if isdefined(Main, :LETS_BE_PIRATES) && Core.eval(Main, :LETS_BE_PIRATES)
     import Base.@r_str
     macro r_str(pattern::ANY, flags...) ; cmp_all(RegexStr(pattern, flags...)) ; end
     # Yes, this is type piracy, but it is needed to make all string types work together easily
@@ -272,7 +276,8 @@ struct RegexStrMatch{T<:AbstractString}
     regex::RegexStr
 end
 
-get_regex(::Type{C}, re::RegexStr) where {C<:CSE} = re.table[_match_type(C)]
+get_regex(::Type{C}, re::RegexStr) where {C<:CSE} =
+    re.table[codeunit_index[codeunit(C)]][opt_index(C)]
 get_regex(re::RegexStrMatch{T}) where {T<:AbstractString} = get_regex(cse(T), re.regex)
 get_regex(re::RegexMatch) = re.regex.regex
 
@@ -309,34 +314,46 @@ end
 
 getindex(m::RegexStrMatch, name::AbstractString) = m[Symbol(name)]
 
+function get_comp_ind(regex, ind)
+    opt = (regex.compile_options | comp_add[ind]) & ~regex.negated_options
+    ((opt & _UTF == 0) ? 0 : (((opt & _VALID) == 0)<<1 + 2) + (opt & _UCP == 0)) + 1, opt
+end
+
 function compile(::Type{C}, pattern, regex::RegexStr) where {C<:Regex_CSEs}
-    T = codeunit(C)
-    nm = _match_type(C)
-    # Todo!: This should be locked, so no race conditions with other threads
-    if (re = regex.table[nm]) == C_NULL
-        cvtcomp = (regex.compile_options | comp_add[nm]) & ~regex.negated_options
+    CU = codeunit(C)
+    cu_index = codeunit_index(CU)
+    retab = regex.table[cu_index]
+    ind, cvtcomp = get_comp_ind(regex, opt_index(C))
+    # Get index based on actual options set
+    re = retab[ind]
+    if re == C_NULL
         pat = convert(Str{C,Nothing,Nothing,Nothing}, pattern)
         lock(regex.compilelock)
         try
-            re = PCRE.compile(pat, cvtcomp)
-            regex.table = _update_table(regex.table, re, nm)
-            PCRE.jit_compile(T, re)
+            # Check again while locked if some other thread has compiled this
+            if retab[ind] == C_NULL
+                re = PCRE.compile(pat, cvtcomp)
+                retab = _update_table(retab, re, ind)
+                PCRE.jit_compile(CU, re)
+            end
         finally
             unlock(regex.compilelock)
         end
     end
-    mt = regex.match[Threads.threadid()]
-    if is_empty(T, mt)
-        lock(regex.matchlock)
-        try
-            md = PCRE.match_data_create_from_pattern(T, re, C_NULL)
-            ov = PCRE.get_ovec(T, md)
-            index = codeunit_index(T)
-            mt.match_data = _update_match(mt.match_data, md, index)
-            mt.ovec       = _update_match(mt.ovec, ov, index)
-        finally
-            unlock(regex.matchlock)
+    tid = Threads.threadid()
+    mt = regex.match[tid]
+    mt.match_data[cu_index] == C_NULL || return regex
+    lock(regex.matchlock)
+    try
+        # check again under lock
+        if mt.match_data[cu_index] == C_NULL
+            md = PCRE.match_data_create_from_pattern(CU, re, C_NULL)
+            ov = PCRE.get_ovec(CU, md)
+            mt.match_data = _update_match(mt.match_data, md, cu_index)
+            mt.ovec       = _update_match(mt.ovec, ov, cu_index)
         end
+    finally
+        unlock(regex.matchlock)
     end
     regex
 end
@@ -344,13 +361,13 @@ end
 compile(::Type{C}, regex::RegexStr) where {C<:Regex_CSEs} = compile(C, regex.pattern, regex)
 
 function compile(::Type{C}, regex::Regex) where {C<:Regex_CSEs}
-    nm = _match_type(C)
+    ind = opt_index(C)
     # Keep old match type in regex.extra (which doesn't seem to ever be used)
     oldind = reinterpret(UInt, regex.extra)%Int
-    nm == oldind && return regex
+    ind == oldind && return regex
 
     re = regex.regex
-    regex.compile_options = cvtcomp = _clear_opts(regex.compile_options) | comp_add[nm]
+    regex.compile_options = cvtcomp = _clear_opts(regex.compile_options) | comp_add[ind]
     if oldind != 0
         S = tabtype[oldind]
         re == C_NULL || (PCRE.code_free(S, re); regex.regex = C_NULL)
@@ -366,35 +383,44 @@ function compile(::Type{C}, regex::Regex) where {C<:Regex_CSEs}
         regex.match_data = md = PCRE.match_data_create_from_pattern(T, re, C_NULL)
         regex.ovec = PCRE.get_ovec(T, md)
     end
-    regex.extra = reinterpret(Ptr{Cvoid}, nm)
+    regex.extra = reinterpret(Ptr{Cvoid}, ind)
     regex
 end
 
 """Get a thread-specific match context"""
 function get_match_context(::Type{T}, tid=Threads.threadid()) where {T<:CodeUnitTypes}
-    if (mc = match_context(T, tid)) == C_NULL
-        mc = PCRE.match_context_create(T, C_NULL)
-        js = PCRE.jit_stack_create(T, JIT_STACK_START_SIZE, JIT_STACK_MAX_SIZE, C_NULL)
-        PCRE.jit_stack_assign(T, mc, C_NULL, js)
-        # Todo!: This should be locked, so no race conditions with other threads
-        MATCH_CONTEXT[tid] = _update_match(MATCH_CONTEXT[tid], mc, codeunit_index(T))
+    cu_index = codeunit_index(T)
+    (mc = MATCH_CONTEXT[tid][cu_index]) == C_NULL || return mc
+    lock(contextlock)
+    try
+        # Double check under lock - might have been set by another thread
+        if MATCH_CONTEXT[tid][cu_index] == C_NULL
+            mc = PCRE.match_context_create(T, C_NULL)
+            js = PCRE.jit_stack_create(T, JIT_STACK_START_SIZE, JIT_STACK_MAX_SIZE, C_NULL)
+            PCRE.jit_stack_assign(T, mc, C_NULL, js)
+            MATCH_CONTEXT[tid] = _update_match(MATCH_CONTEXT[tid], mc, cu_index)
+        end
+    finally
+        unlock(contextlock)
     end
     mc
 end
 
 function exec(C, re::RegexStr, subject, offset, options)
-    #print("exec($re, \"$subject\", $offset, $options, match_data)")
+    print("exec($re, \"$subject\", $offset, $options, match_data)")
     @preserve subject begin
         pnt = pointer(subject)
         siz = ncodeunits(subject)
-        T = eltype(pnt)
-        #loc = bytoff(T, offset)
+        CU = eltype(pnt)
         0 <= offset <= siz || boundserr(subject, offset)
         tid = Threads.threadid()
-        #print("\"$subject\", $offset, $(dump(re)) =>")
-        rc = PCRE.match(T, re.table[_match_type(C)], pnt, siz, offset,
-                        re.match_options | match_add[_match_type(C)] | _check_match(options),
-                        get_match_data(T, re.match[tid]), get_match_context(T, tid))
+        cu_index = codeunit_index(CU)
+        tab = re.table[cu_index]
+        ind = get_comp_ind(re, opt_index(C))[1]
+        println(" => $tab, $ind")
+        rc = PCRE.match(CU, tab[ind], pnt, siz, offset,
+                        re.match_options | match_add[ind] | _check_match(options),
+                        re.match[tid].match_data[cu_index], get_match_context(CU, tid))
         # rc == -1 means no match, -2 means partial match.
         #dump(re)
         rc < -2 && error("StrRegex.exec error: $(PCRE.err_message(rc))")
@@ -409,7 +435,7 @@ function exec(C, re::Regex, subject, offset, options)
         T = eltype(pnt)
         #loc = bytoff(T, offset)
         0 <= offset <= siz || boundserr(subject, offset)
-        opts = re.match_options | match_add[_match_type(C)] | _check_match(options)
+        opts = re.match_options | match_add[opt_index(C)] | _check_match(options)
         rc = PCRE.match(T, re.regex, pnt, siz, offset, opts, re.match_data, get_match_context(T))
         # rc == -1 means no match, -2 means partial match.
         rc < -2 && error("StrRegex.exec error: $(PCRE.err_message(rc))")
@@ -506,7 +532,7 @@ function Base._replace(io, repl_s::SubstitutionString,
     tid = Threads.threadid()
     C = cse(T)
     CU = codeunit(C)
-    md = get_match_data(CU, re.match[tid])
+    md = re.match[tid].match_data[codeunit_index(CU)]
     regex = get_regex(C, re)
     repl = repl_s.string
     pos = 1
@@ -599,9 +625,9 @@ function iterate(itr::RegexStrMatchIterator, (offset,prevempty)=(1,false))
     end
     nothing
 end
-else
+else # NEW_ITERATE
+
 # Assumes prev_match is not nothing
-@static if true
 function next(itr::RegexStrMatchIterator, prev_match)
     prevempty = isempty(prev_match.match)
 
@@ -633,31 +659,8 @@ function next(itr::RegexStrMatchIterator, prev_match)
         end
     end
     (prev_match, nothing)
-end
-else
-function next(itr::RegexStrMatchIterator, prev_match)
-    opts_nonempty = UInt32(PCRE.ANCHORED | PCRE.NOTEMPTY_ATSTART)
-    if is_empty(prev_match.match)
-        offset = prev_match.offset + (itr.overlap ? 0 : ncodeunits(prev_match.match))
-        while ((mat = match(itr.regex, itr.string, offset, opts_nonempty) === nothing) &&
-               prevempty && offset <= sizeof(itr.string))
-            offset = nextind(itr.string, offset)
-            prevempty = false
-        end
-    else
-        offset = (itr.overlap
-                  ? nextind(itr.string, prev_match.offset)
-                  : prev_match.offset + ncodeunits(prev_match.match))
-        while ((mat = match(itr.regex, itr.string, offset, UInt32(0)) === nothing) &&
-               prevempty && offset <= sizeof(itr.string))
-            offset = nextind(itr.string, offset)
-            prevempty = false
-        end
-    end
-    (prev_match, mat)
-end
-end
-end
+end # next
+end # NEW_ITERATE
 
 @static if V6_COMPAT
 eachmatch(re::RegexStr, str::AbstractString, ov::Union{Bool,Nothing}=nothing; overlap = false) =
