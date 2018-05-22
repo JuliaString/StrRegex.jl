@@ -48,7 +48,7 @@ function __init__()
     end
 end
 
-# UTF and NO_UTF_CHECK are based on the string type
+# UCP, UTF and NO_UTF_CHECK are based on the string type
 const DEFAULT_COMPILER_OPTS = PCRE.ALT_BSUX
 const DEFAULT_MATCH_OPTS    = 0%UInt32
 
@@ -147,7 +147,7 @@ mutable struct RegexStr
                  _check_compile(negated_options),
                  Threads.SpinLock(),
                  Threads.SpinLock(),
-                 [empty_table for i=1:6],
+                 [empty_table for i=1:3],
                  [MatchTab() for i=1:Threads.nthreads()])
         compile(cse(pattern), pattern, re)
         fin(re)
@@ -251,7 +251,8 @@ macro R_str(pattern, flags...) cmp_all(RegexStr(pattern, flags...)) end
 function show(io::IO, re::RegexStr)
     imsx = PCRE.CASELESS|PCRE.MULTILINE|PCRE.DOTALL|PCRE.EXTENDED|PCRE.UCP
     opts = re.compile_options
-    if (opts & ~imsx) == DEFAULT_COMPILER_OPTS
+    neg  = re.negated_options
+    if (opts & ~imsx) == DEFAULT_COMPILER_OPTS || neg != 0
         print(io, 'R')
         Base.print_quoted_literal(io, re.pattern)
         (opts & PCRE.CASELESS ) == 0 || print(io, 'i')
@@ -259,11 +260,13 @@ function show(io::IO, re::RegexStr)
         (opts & PCRE.DOTALL   ) == 0 || print(io, 's')
         (opts & PCRE.EXTENDED ) == 0 || print(io, 'x')
         (opts & PCRE.UCP      ) == 0 || print(io, 'u')
+        (neg  & PCRE.UCP      ) == 0 || print(io, 'a')
     else
         print(io, "RegexStr(")
         show(io, re.pattern)
         print(io, ',')
         show(io, opts)
+        neg == 0 || print(io, "," , neg)
         print(io, ')')
     end
 end
@@ -276,9 +279,8 @@ struct RegexStrMatch{T<:AbstractString}
     regex::RegexStr
 end
 
-get_regex(::Type{C}, re::RegexStr) where {C<:CSE} =
-    re.table[codeunit_index[codeunit(C)]][opt_index(C)]
-get_regex(re::RegexStrMatch{T}) where {T<:AbstractString} = get_regex(cse(T), re.regex)
+get_regex(re::RegexStrMatch{T}) where {T<:AbstractString} =
+    (C = cse(T) ; re.regex.table[codeunit_index(codeunit(C))][opt_index(C)])
 get_regex(re::RegexMatch) = re.regex.regex
 
 function show(io::IO, m::RegexStrMatch{T}) where {T}
@@ -320,6 +322,7 @@ function get_comp_ind(regex, ind)
 end
 
 function compile(::Type{C}, pattern, regex::RegexStr) where {C<:Regex_CSEs}
+    deb[] && println("compile(::Type{$C}, \"$pattern\", $regex)")
     CU = codeunit(C)
     cu_index = codeunit_index(CU)
     retab = regex.table[cu_index]
@@ -333,7 +336,7 @@ function compile(::Type{C}, pattern, regex::RegexStr) where {C<:Regex_CSEs}
             # Check again while locked if some other thread has compiled this
             if retab[ind] == C_NULL
                 re = PCRE.compile(pat, cvtcomp)
-                retab = _update_table(retab, re, ind)
+                regex.table[cu_index] = _update_table(retab, re, ind)
                 PCRE.jit_compile(CU, re)
             end
         finally
@@ -407,7 +410,7 @@ function get_match_context(::Type{T}, tid=Threads.threadid()) where {T<:CodeUnit
 end
 
 function exec(C, re::RegexStr, subject, offset, options)
-    print("exec($re, \"$subject\", $offset, $options, match_data)")
+    deb[] && print("exec($re, \"$subject\", $offset, $options, match_data)")
     @preserve subject begin
         pnt = pointer(subject)
         siz = ncodeunits(subject)
@@ -417,7 +420,7 @@ function exec(C, re::RegexStr, subject, offset, options)
         cu_index = codeunit_index(CU)
         tab = re.table[cu_index]
         ind = get_comp_ind(re, opt_index(C))[1]
-        println(" => $tab, $ind")
+        deb[] && println(" => $tab, $ind")
         rc = PCRE.match(CU, tab[ind], pnt, siz, offset,
                         re.match_options | match_add[ind] | _check_match(options),
                         re.match[tid].match_data[cu_index], get_match_context(CU, tid))
@@ -532,8 +535,9 @@ function Base._replace(io, repl_s::SubstitutionString,
     tid = Threads.threadid()
     C = cse(T)
     CU = codeunit(C)
-    md = re.match[tid].match_data[codeunit_index(CU)]
-    regex = get_regex(C, re)
+    cu_index = codeunit_index(CU)
+    md = re.match[tid].match_data[cu_index]
+    regex = re.table[cu_index][opt_index(C)]
     repl = repl_s.string
     pos = 1
     lst = lastindex(repl)
