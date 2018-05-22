@@ -10,7 +10,7 @@ module StrRegex
 
 import Base.Threads
 
-using APITools
+using ModuleInterfaceTools
 
 @api extend StrAPI, CharSetEncodings, Chars, StrBase
 
