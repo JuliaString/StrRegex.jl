@@ -12,7 +12,7 @@ import Base.Threads
 
 using ModuleInterfaceTools
 
-@api extend StrAPI, CharSetEncodings, Chars, StrBase
+@api extend StrAPI, CharSetEncodings, ChrBase, StrBase
 
 @api base Regex, match, compile, eachmatch
 

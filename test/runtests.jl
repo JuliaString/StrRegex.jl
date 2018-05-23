@@ -2,7 +2,7 @@
 
 using ModuleInterfaceTools
 
-@api test StrAPI, CharSetEncodings, Chars, StrBase, StrRegex
+@api test StrAPI, CharSetEncodings, ChrBase, StrBase, StrRegex
 
 @static V6_COMPAT || (using Random, Unicode)
 

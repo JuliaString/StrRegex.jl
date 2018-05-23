@@ -1,10 +1,9 @@
 # StrRegex
 
-[![Build Status](https://travis-ci.org/JuliaString/StrRegex.jl.svg?branch=master)](https://travis-ci.org/JuliaString/StrRegex.jl)
-
-[![Coverage Status](https://coveralls.io/repos/JuliaString/StrRegex.jl/badge.svg?branch=master&service=github)](https://coveralls.io/github/JuliaString/StrRegex.jl?branch=master)
-
-[![codecov.io](http://codecov.io/github/JuliaString/StrRegex.jl/coverage.svg?branch=master)](http://codecov.io/github/JuliaString/StrRegex.jl?branch=master)
+| **Package Status** | **Package Evaluator** | **Coverage**      |
+|:------------------:|:---------------------:|:-----------------:|
+| [![License](http://img.shields.io/badge/license-MIT-brightgreen.svg?style=flat)](LICENSE.md) [![Build Status](https://travis-ci.org/JuliaString/StrRegex.jl.svg?branch=master)](https://travis-ci.org/JuliaString/StrRegex.jl) | [![StrRegex](http://pkg.julialang.org/badges/StrRegex_0.6.svg)](http://pkg.julialang.org/?pkg=StrRegex) [![StrRegex](http://pkg.julialang.org/badges/StrRegex_0.7.svg)](http://pkg.julialang.org/?pkg=StrRegex) | [![Coverage Status](https://coveralls.io/repos/github/JuliaString/StrRegex.jl/badge.svg?branch=master)](https://coveralls.io/github/JuliaString/StrRegex.jl?branch=master)
+[![codecov.io](http://codecov.io/github/JuliaString/StrRegex.jl/coverage.svg?branch=master)](http://codecov.io/github/JuliaString/StrRegex.jl?branch=master) |
 
 The `StrRegex` package adds Regex support to the `Strs` package, as well as fix some issues present in the base Regex support.
 
