@@ -1,7 +1,8 @@
-name = "StrRegex"
+authors = ["ScottPJones <scottjones@alum.mit.edu>"]
 desc = "Regex support for validated ASCII, Latin1, UTF-8, UTF-16, UTF-32 and other encodings"
 keywords = ["Strings", "Regex", "PCRE", "Unicode"]
-authors = ["ScottPJones <scottjones@alum.mit.edu>"]
 license = "MIT"
+name = "StrRegex"
+repo-rev = ""
+repo-url = "https://github.com/JuliaString/StrRegex.jl.git"
 uuid = "128fb37e-e16c-4908-8083-6410b01968ef"
-repo = "https://github.com/JuliaString/StrRegex.jl.git"
