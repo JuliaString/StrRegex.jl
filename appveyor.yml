@@ -40,9 +40,17 @@ install:
 build_script:
 # Need to convert from shallow to complete for Pkg.clone to work
   - IF EXIST .git\shallow (git fetch --unshallow)
-  - C:\projects\julia\bin\julia -e "VERSION < v\"0.7.0-DEV\" || (using Pkg, InteractiveUtils);
+  - C:\projects\julia\bin\julia -e "VERSION < v\"0.7.0-DEV\" || (using InteractiveUtils);
       versioninfo(); pkg = \"StrRegex\";
-      if VERSION < v\"0.7.0-DEV.5183\"; Pkg.clone(pwd(), pkg); else; Pkg.add(pwd(), pkg); end"
+      if VERSION < v\"0.7.0-DEV.5183\";
+         for n in (\"ModuleInterfaceTools\", \"MurmurHash3\", \"StrTables\", \"StrAPI\", \"CharSetEncodings\");
+             Pkg.add(n);
+         end;
+         for n in (\"ChrBase\", \"StrBase\");
+             Pkg.clone(\"https://github.com/JuliaString/$n.jl.git\", n);
+         end;
+         Pkg.clone(pwd(), pkg);
+      end"
 
 test_script:
   - C:\projects\julia\bin\julia -e "VERSION < v\"0.7.0-DEV\" || (using Pkg); Pkg.test(\"StrRegex\")"
