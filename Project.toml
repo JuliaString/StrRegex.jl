@@ -3,12 +3,13 @@ desc = "Regex support for validated ASCII, Latin1, UTF-8, UTF-16, UTF-32 and oth
 keywords = ["Strings", "Regex", "PCRE", "Unicode"]
 license = "MIT"
 name = "StrRegex"
-repo-rev = ""
-repo-url = "https://github.com/JuliaString/StrRegex.jl.git"
 uuid = "128fb37e-e16c-4908-8083-6410b01968ef"
-version = "0.1.0"
 
 [deps]
+Pkg     = "fe1c5a76-5840-53d2-82f9-288dd83ce2ce"
+Test    = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+Unicode = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
+
 ModuleInterfaceTools = "5cb8414e-7aab-5a03-a681-351269c074bf" # x13gh7y6id3fbmke
 MurmurHash3          = "f0d41675-b40b-4ac0-9c24-1938651d8492" # q55ln7mp20ph5cko
 PCRE2                = "c9310f65-a42c-5928-aca3-d34f64192029" # d62uhoik906m7n8r
