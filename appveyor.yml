@@ -41,19 +41,8 @@ build_script:
 # Need to convert from shallow to complete for Pkg.clone to work
   - IF EXIST .git\shallow (git fetch --unshallow)
   - C:\projects\julia\bin\julia -e "VERSION < v\"0.7.0-DEV\" || (using InteractiveUtils);
-      versioninfo(); pkg = \"StrRegex\"; loc = \"https://github.com/JuliaString\";
-      mit = \"ModuleInterfaceTools\"; mh3 = \"MurmurHash3\"; sb = \"StrBase\";
-      la = (\"PCRE2\", \"StrAPI\", \"CharSetEncodings\", \"ChrBase\");
-      if VERSION < v\"0.7.0-DEV.5183\";
-          Pkg.clone(\"$loc/$mit.jl\", mit);
-          Pkg.clone(\"$loc/$mh3.jl\", mh3);
-          for n in la; Pkg.add(n); end;
-          Pkg.clone(\"$loc/$sb.jl\", sb);
-          Pkg.clone(pwd(), pkg);
-      else;
-          using Pkg;
-          for n in (mit, mh3, sb); Pkg.add(\"$loc/$n.jl\"); end;
-      end;
+      versioninfo();
+      if VERSION < v\"0.7.0-DEV.5183\"; Pkg.clone(pwd(), \"StrRegex\"); else; using Pkg; end"
       Pkg.build(\"PCRE2\")"
 
 test_script:
