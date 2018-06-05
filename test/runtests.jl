@@ -2,9 +2,9 @@
 
 using ModuleInterfaceTools
 
-@api test StrAPI, CharSetEncodings, ChrBase, StrBase, StrRegex
+@static V6_COMPAT || (using Pkg, Random, Unicode)
 
-@static V6_COMPAT || (using Random, Unicode)
+@api test StrAPI, CharSetEncodings, ChrBase, StrBase, StrRegex
 
 const IndexError = isdefined(Base, :StringIndexError) ? StringIndexError : UnicodeError
 
