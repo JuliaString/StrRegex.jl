@@ -12,13 +12,11 @@ import Base.Threads
 
 using ModuleInterfaceTools
 
-@api extend StrAPI, CharSetEncodings, ChrBase, StrBase
+@api extend! StrBase
 
 @api base Regex, match, compile, eachmatch
 
-@api public RegexStr, RegexStrMatch
-
-@eval @api public $(Symbol("@r_str")), $(Symbol("@R_str"))
+@api public RegexStr, RegexStrMatch, "@r_str", "@R_str"
 
 const _not_found = StrBase._not_found
 
