@@ -597,9 +597,7 @@ RegexStrMatchIterator(r::RegexStr, s::AbstractString) = RegexStrMatchIterator(r,
 
 compile(itr::RegexStrMatchIterator{T}) where {T} = (compile(cse(T), itr.regex); itr)
 eltype(::Type{RegexStrMatchIterator{T}}) where {T} = RegexStrMatch{T}
-start(itr::RegexStrMatchIterator) = match(itr.regex, itr.string, 1, UInt32(0))
 firstindex(itr::RegexStrMatchIterator) = match(itr.regex, itr.string, 1, UInt32(0))
-done(itr::RegexStrMatchIterator, prev_match) = (prev_match === nothing)
 IteratorSize(::Type{RegexStrMatchIterator{T}}) where {T<:AbstractString} = Base.SizeUnknown()
 
 @static if NEW_ITERATE
@@ -628,6 +626,9 @@ function iterate(itr::RegexStrMatchIterator, (offset,prevempty)=(1,false))
     nothing
 end
 else # NEW_ITERATE
+
+start(itr::RegexStrMatchIterator) = match(itr.regex, itr.string, 1, UInt32(0))
+done(itr::RegexStrMatchIterator, prev_match) = (prev_match === nothing)
 
 # Assumes prev_match is not nothing
 function next(itr::RegexStrMatchIterator, prev_match)
