@@ -2,9 +2,9 @@
 
 using ModuleInterfaceTools
 
-@static V6_COMPAT || (using Random, Unicode)
+@api extend StrRegex
 
-@api test StrRegex
+@static V6_COMPAT ? (using Base.Test) : (using Random, Unicode, Test)
 
 const IndexError = isdefined(Base, :StringIndexError) ? StringIndexError : UnicodeError
 
