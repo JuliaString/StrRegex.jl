@@ -4,7 +4,7 @@ keywords = ["Strings", "Regex", "PCRE", "Unicode"]
 license = "MIT"
 name = "StrRegex"
 uuid = "2267b70d-4c4a-5da2-8395-98751c0d506a"
-version = "0.1.5"
+version = "0.1.6"
 
 [deps]
 Pkg     = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
