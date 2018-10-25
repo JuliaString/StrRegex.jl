@@ -516,6 +516,16 @@ find(::Type{First}, re::RegexTypes, str::MaybeSub{<:Str{_LatinCSE}}) =
 find(::Type{First}, re::RegexTypes, str::MaybeSub{String}) = 
     __find(RawUTF8CSE, re, str, 0)
 
+# Borrow idea from @dalum on GitHub (sakse on Julia Discourse), PR #29790
+starts_with(s::AbstractString, r::RegexStr) =
+    comp_exec(UTF8CSE, r, UTF8Str(s), 0, PCRE.ANCHORED)
+starts_with(s::MaybeSub{<:Str{C}}, r::RegexStr) where {C<:Regex_CSEs} =
+    comp_exec(C, r, s, 0, PCRE.ANCHORED)
+ends_with(s::AbstractString, r::RegexStr) =
+    comp_exec(UTF8CSE, r, UTF8Str(s), 0, PCRE.ENDANCHORED)
+ends_with(s::MaybeSub{<:Str{C}}, r::RegexStr) where {C<:Regex_CSEs} =
+    comp_exec(C, r, s, 0, PCRE.ENDANCHORED)
+
 function _write_capture(io, ::Type{C}, group::Integer, md) where {C<:CSE}
     T = codeunit(C)
     len = PCRE.sub_length_bynumber(T, md, group)

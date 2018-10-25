@@ -21,9 +21,8 @@ cvt(v::UnitRange, m) = cvt(v.start,m):cvt(v.stop,m)
 
 # Should test GenericString also, once overthing else is working
 const UnicodeStringTypes = (String, UTF8Str, UTF16Str, UTF32Str, UCS2Str)
-    # (String, UTF16Str, UTF32Str, UniStr, UTF8Str)
+
 const ASCIIStringTypes = (ASCIIStr, LatinStr, UTF8Str, UTF16Str, UTF32Str, UCS2Str, String)
-    # (String, UTF8Str, ASCIIStr, LatinStr, UCS2Str, UTF32Str)
 
 function test2(str, list, umap::Any=nothing)
     mymap = (encoding(str) === encoding(UTF8Str) ? umap : nothing)
@@ -84,6 +83,13 @@ const utf8map = convert(Vector{Int}, collect(eachindex(u8str)))
                 res  = ( 0:-1,  0:-1,  0:-1,   8:9,  0:-1,  0:-1) # was 12 for fndnext
                 test3(fbb, zip(pats, pos, res))
             end
+        end
+        rs = T("foo123 foo456 foo789")
+        @testset "(starts|ends)_with: $T" begin
+            @test startswith(rs, R"fo+\d+")
+            @test endswith(rs, R"fo+\d+")
+            @test !startswith(rs, R"f\d+")
+            @test !endswith(rs, R"f\d+")
         end
     end
 end
