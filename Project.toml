@@ -4,7 +4,6 @@ keywords = ["Strings", "Regex", "PCRE", "Unicode"]
 license = "MIT"
 name = "StrRegex"
 uuid = "2267b70d-4c4a-5da2-8395-98751c0d506a"
-version = "0.2.0"
 
 [deps]
 ModuleInterfaceTools = "5cb8414e-7aab-5a03-a681-351269c074bf"
@@ -22,3 +21,13 @@ Random  = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
 [targets]
 test = ["Test", "Unicode", "Random"]
+
+[compat]
+julia = "^1.0.0"
+ModuleInterfaceTools = "≥ 1.0.0"
+StrAPI = "≥ 1.0.0"
+MurmurHash3 = "≥ 1.0.0"
+PCRE2 = "≥ 1.0.0"
+ChrBase = "≥ 1.0.0"
+CharSetEncodings = "≥ 1.0.0"
+StrBase = "≥ 1.0.0"
