@@ -410,31 +410,16 @@ else
 end
 end
 
-function _make_context(T, tid, cu_index)
-    mc = PCRE.match_context_create(T, C_NULL)
-    js = PCRE.jit_stack_create(T, JIT_STACK_START_SIZE, JIT_STACK_MAX_SIZE, C_NULL)
-    PCRE.jit_stack_assign(T, mc, C_NULL, js)
-    MATCH_CONTEXT[tid] = _update_match(MATCH_CONTEXT[tid], mc, cu_index)
-    mc
-end
-
 """Get a thread-specific match context"""
 function get_match_context(::Type{T}, tid) where {T<:CodeUnitTypes}
     cu_index = codeunit_index(T)
-    (mc = MATCH_CONTEXT[tid][cu_index]) == C_NULL || return mc
-    if PCRE.PCRE_LOCK === nothing
-        _make_context(CU, re, mt, cu_index)
-    else
-        l = PCRE.PCRE_LOCK::Threads.SpinLock
-        lock(l)
-        try
-            # Double check under lock - might have been set by another thread
-            MATCH_CONTEXT[tid][cu_index] == C_NULL || (mc = _make_context(T, tid, cu_index))
-        finally
-            unlock(l)
-        end
-        mc
+    if (mc = MATCH_CONTEXT[tid][cu_index]) == C_NULL
+        mc = PCRE.match_context_create(T, C_NULL)
+        js = PCRE.jit_stack_create(T, JIT_STACK_START_SIZE, JIT_STACK_MAX_SIZE, C_NULL)
+        PCRE.jit_stack_assign(T, mc, C_NULL, js)
+        MATCH_CONTEXT[tid] = _update_match(MATCH_CONTEXT[tid], mc, cu_index)
     end
+    mc
 end
 
 _exec_err(rc) = error("StrRegex.exec error: $(PCRE.err_message(rc))")
