@@ -4,16 +4,9 @@ using ModuleInterfaceTools
 
 @api extend StrRegex
 
-@static V6_COMPAT ? (using Base.Test) : (using Random, Unicode, Test)
+using Random, Unicode, Test
 
 const IndexError = isdefined(Base, :StringIndexError) ? StringIndexError : UnicodeError
-
-# Add definitions not present in v0.6.2 for GenericString
-@static if V6_COMPAT
-    ncodeunits(s::GenericString) = ncodeunits(s.string)
-    codeunit(s::GenericString) = codeunit(s.string)
-    codeunit(s::GenericString, i::Integer) = codeunit(s.string, i)
-end
 
 cvt(v::Integer, m::Nothing) = v
 cvt(v::Integer, m::Vector{Int}) = v < 1 ? v : m[v]
@@ -125,13 +118,8 @@ end
 
 const RegexStrings = (ASCIIStr, BinaryStr, Text1Str, LatinStr, _LatinStr, UTF8Str)
 
-@static if V6_COMPAT
-    collect_eachmatch(re, str; overlap=false) =
-        [m.match for m in collect(eachmatch(re, str, overlap))]
-else
-    collect_eachmatch(re, str; overlap=false) =
-        [m.match for m in collect(eachmatch(re, str, overlap = overlap))]
-end
+collect_eachmatch(re, str; overlap=false) =
+    [m.match for m in collect(eachmatch(re, str, overlap = overlap))]
 
 @testset "UTF8Str Regex" begin
     # Proper unicode handling
@@ -164,21 +152,43 @@ target = """71.163.72.113 - - [30/Jul/2014:16:40:55 -0700] "GET emptymind.org/th
 
         match(pat, T(target))
 
+        # issue #26829
+        @test map(m -> m.match, eachmatch(R"^$|\S", "ö")) == ["ö"]
+
+        # issue #26199
+        @test map(m -> m.match, eachmatch(R"(\p{L}+)", "Tú")) == ["Tú"]
+        @test map(m -> m.match, eachmatch(R"(\p{L}+)", "Tú lees.")) == ["Tú", "lees"]
+        @test map(m -> m.match, eachmatch(R"(\p{L}+)", "¿Cuál es tu pregunta?")) == ["Cuál", "es", "tu", "pregunta"]
+
         # Issue 9545 (32 bit)
         buf = PipeBuffer()
         show(buf, R"")
-        @static if V6_COMPAT
-            @test readstring(buf) == "R\"\""
-        else
-            @test read(buf, String) == "R\"\""
-        end
+        @test read(buf, String) == "R\"\""
 
         # see #10994, #11447: PCRE2 allows NUL chars in the pattern
-        @test occurs_in(Regex(T("^a\0b\$")), T("a\0b"))
+        @test occurs_in(RegexStr(T("^a\0b\$")), T("a\0b"))
 
         # regex match / search string must be a String
         @test_throws ArgumentError match(R"test", GenericString("this is a test"))
         @test_throws ArgumentError fnd(First, R"test", GenericString("this is a test"))
+
+        # Issue 27125
+        msg = "#Hello# from Julia"
+        re = R"#(.+)# from (?<name>\w+)"
+        subst = s"FROM: \g<name>\n MESSAGE: \1"
+        @test replace(msg, re => subst) == "FROM: Julia\n MESSAGE: Hello"
+
+        # findall
+        @test findall(R"\w+", "foo bar") == [1:3, 5:7]
+        @test findall(R"\w+", "foo bar", overlap=true) == [1:3, 2:3, 3:3, 5:7, 6:7, 7:7]
+        @test findall(R"\w*", "foo bar") == [1:3, 4:3, 5:7, 8:7]
+        @test findall(R"\b", "foo bar") == [1:0, 4:3, 5:4, 8:7]
+
+        # count
+        @test count(R"\w+", "foo bar") == 2
+        @test count(R"\w+", "foo bar", overlap=true) == 6
+        @test count(R"\w*", "foo bar") == 4
+        @test count(R"\b", "foo bar") == 4
 
         # Named subpatterns
         let m = match(R"(?<a>.)(.)(?<b>.)", T("xyz"))
@@ -186,14 +196,10 @@ target = """71.163.72.113 - - [30/Jul/2014:16:40:55 -0700] "GET emptymind.org/th
             typ = T === _LatinStr ? ASCIIStr : T
             @test sprint(show, m) == "RegexStrMatch{$typ}(\"xyz\", a=\"x\", 2=\"y\", b=\"z\")"
         end
+
         # Backcapture reference in substitution string
-        @static if V6_COMPAT
-            @test replace(T("abcde"), R"(..)(?P<byname>d)", s"\g<byname>xy\\\1") == "adxy\\bce"
-            @test_throws ErrorException replace(T("a"), R"(?P<x>)", s"\g<y>")
-        else
-            @test replace(T("abcde"), R"(..)(?P<byname>d)" => s"\g<byname>xy\\\1") == "adxy\\bce"
-            @test_throws ErrorException replace(T("a"), R"(?P<x>)" => s"\g<y>")
-        end
+        @test replace(T("abcde"), R"(..)(?P<byname>d)" => s"\g<byname>xy\\\1") == "adxy\\bce"
+        @test_throws ErrorException replace(T("a"), R"(?P<x>)" => s"\g<y>")
     end
 end
 

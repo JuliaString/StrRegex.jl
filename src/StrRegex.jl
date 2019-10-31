@@ -16,7 +16,7 @@ const BASE_REGEX_MT = isdefined(Base.PCRE, :PCRE_COMPILE_LOCK)
 
 @api extend! StrBase
 
-@api base Regex, match, compile, eachmatch
+@api base Regex, match, compile, eachmatch, findall, count
 
 @api public RegexStr, RegexStrMatch, "@r_str", "@R_str"
 
@@ -708,6 +708,64 @@ _occurs_in(r::RegexTypes, s::MaybeSub{<:Str{C}}, off::Integer) where {C<:Regex_C
 
 occurs_in(needle::RegexStr, hay::AbstractString; off::Integer=0) = _occurs_in(needle, hay, off)
 occurs_in(needle::Regex, hay::MaybeSub{<:Str}; off::Integer=0)   = _occurs_in(needle, hay, off)
+
+# Copied from julia/base/regex.jl
+# Regex really should be moved to stdlib, and an AbstractRegex or AbstractPattern type added
+#
+"""
+    findall(
+        pattern::Union{AbstractString,Regex,RegexStr},
+        string::AbstractString;
+        overlap::Bool = false,
+    )
+
+Return a `Vector{UnitRange{Int}}` of all the matches for `pattern` in `string`.
+Each element of the returned vector is a range of indices where the
+matching sequence is found, like the return value of [`findnext`](@ref).
+
+If `overlap=true`, the matching sequences are allowed to overlap indices in the
+original string, otherwise they must be from disjoint character ranges.
+"""
+function findall(t::RegexStr, s::AbstractString; overlap::Bool=false)
+    found = UnitRange{Int}[]
+    i, e = firstindex(s), lastindex(s)
+    while true
+        r = findnext(t, s, i)
+        isnothing(r) && break
+        push!(found, r)
+        j = overlap || isempty(r) ? first(r) : last(r)
+        j > e && break
+        @inbounds i = nextind(s, j)
+    end
+    return found
+end
+
+"""
+    count(
+        pattern::Union{AbstractString,Regex,RegexStr},
+        string::AbstractString;
+        overlap::Bool = false,
+    )
+
+Return the number of matches for `pattern` in `string`. This is equivalent to
+calling `length(findall(pattern, string))` but more efficient.
+
+If `overlap=true`, the matching sequences are allowed to overlap indices in the
+original string, otherwise they must be from disjoint character ranges.
+"""
+function count(t::RegexStr, s::AbstractString; overlap::Bool=false)
+    n = 0
+    i, e = firstindex(s), lastindex(s)
+    while true
+        r = findnext(t, s, i)
+        isnothing(r) && break
+        n += 1
+        j = overlap || isempty(r) ? first(r) : last(r)
+        j > e && break
+        @inbounds i = nextind(s, j)
+    end
+    return n
+end
 
 @api freeze
 
