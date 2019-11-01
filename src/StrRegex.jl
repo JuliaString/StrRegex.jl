@@ -556,19 +556,21 @@ function _write_capture(io, ::Type{C}, group::Integer, md) where {C<:CSE}
     print(io, Str(C, buf))
 end
 
+const SUB_CHAR = '\\'
+const GROUP_CHAR = 'g'
+const KEEP_ESC = [SUB_CHAR, GROUP_CHAR, '0':'9'...]
+const LBRACKET = '<'
+const RBRACKET = '>'
+
 function Base._replace(io, repl_s::SubstitutionString,
                        str::T, r, re::RegexStr) where {T<:AbstractString}
-    SUB_CHAR = '\\'
-    GROUP_CHAR = 'g'
-    LBRACKET = '<'
-    RBRACKET = '>'
     tid = Threads.threadid()
     C = cse(T)
     CU = codeunit(C)
     cu_index = codeunit_index(CU)
     md = re.match[tid].match_data[cu_index]
     regex = re.table[cu_index][opt_index(C)]
-    repl = repl_s.string
+    repl = unescape_string(repl_s.string, KEEP_ESC)
     pos = 1
     lst = lastindex(repl)
     # This needs to be careful with writes!
