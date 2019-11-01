@@ -16,7 +16,7 @@ const BASE_REGEX_MT = isdefined(Base.PCRE, :PCRE_COMPILE_LOCK)
 
 @api extend! StrBase
 
-@api base Regex, match, compile, eachmatch, findall, count
+@api base Regex, match, compile, eachmatch, findfirst, findnext, findall, count
 
 @api public RegexStr, RegexStrMatch, "@r_str", "@R_str"
 
@@ -534,6 +534,10 @@ find(::Type{First}, re::RegexTypes, str::MaybeSub{<:Str{_LatinCSE}}) =
 find(::Type{First}, re::RegexTypes, str::MaybeSub{String}) = 
     __find(RawUTF8CSE, re, str, 0)
 
+find(::Type{All}, re::RegexTypes, str::AbstractString, idx::Integer) =
+    findall(re, str, idx)
+find(::Type{All}, re::RegexTypes, str::AbstractString) = find(All, re, str, 1)
+
 # Borrow idea from @dalum on GitHub (sakse on Julia Discourse), PR #29790
 starts_with(s::AbstractString, r::RegexStr) =
     comp_exec(UTF8CSE, r, UTF8Str(s), 0, PCRE.ANCHORED)
@@ -730,7 +734,7 @@ function findall(t::RegexStr, s::AbstractString; overlap::Bool=false)
     found = UnitRange{Int}[]
     i, e = firstindex(s), lastindex(s)
     while true
-        r = findnext(t, s, i)
+        r = find(Fwd, t, s, i)
         isnothing(r) && break
         push!(found, r)
         j = overlap || isempty(r) ? first(r) : last(r)
@@ -757,7 +761,7 @@ function count(t::RegexStr, s::AbstractString; overlap::Bool=false)
     n = 0
     i, e = firstindex(s), lastindex(s)
     while true
-        r = findnext(t, s, i)
+        r = find(Fwd, t, s, i)
         isnothing(r) && break
         n += 1
         j = overlap || isempty(r) ? first(r) : last(r)
