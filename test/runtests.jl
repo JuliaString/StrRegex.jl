@@ -173,10 +173,12 @@ target = """71.163.72.113 - - [30/Jul/2014:16:40:55 -0700] "GET emptymind.org/th
         @test_throws ArgumentError fnd(First, R"test", GenericString("this is a test"))
 
         # Issue 27125
-        msg = "#Hello# from Julia"
-        re = R"#(.+)# from (?<name>\w+)"
-        subst = s"FROM: \g<name>\n MESSAGE: \1"
-        @test replace(msg, re => subst) == "FROM: Julia\n MESSAGE: Hello"
+        @static if VERSION >= v"1.3"
+            msg = "#Hello# from Julia"
+            re = R"#(.+)# from (?<name>\w+)"
+            subst = s"FROM: \g<name>\n MESSAGE: \1"
+            @test replace(msg, re => subst) == "FROM: Julia\n MESSAGE: Hello"
+        end
 
         # findall
         @test findall(R"\w+", "foo bar") == [1:3, 5:7]

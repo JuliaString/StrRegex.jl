@@ -16,7 +16,7 @@ const BASE_REGEX_MT = isdefined(Base.PCRE, :PCRE_COMPILE_LOCK)
 
 @api extend! StrBase
 
-@api base Regex, match, compile, eachmatch, findfirst, findnext, findall, count
+@api base Regex, match, compile, eachmatch, findall, count
 
 @api public RegexStr, RegexStrMatch, "@r_str", "@R_str"
 
@@ -570,7 +570,11 @@ function Base._replace(io, repl_s::SubstitutionString,
     cu_index = codeunit_index(CU)
     md = re.match[tid].match_data[cu_index]
     regex = re.table[cu_index][opt_index(C)]
-    repl = unescape_string(repl_s.string, KEEP_ESC)
+    @static if VERSION < v"1.3"
+        repl = repl_s.string
+    else
+        repl = Base.unescape_string(repl_s.string, KEEP_ESC)
+    end
     pos = 1
     lst = lastindex(repl)
     # This needs to be careful with writes!
@@ -715,6 +719,10 @@ _occurs_in(r::RegexTypes, s::MaybeSub{<:Str{C}}, off::Integer) where {C<:Regex_C
 occurs_in(needle::RegexStr, hay::AbstractString; off::Integer=0) = _occurs_in(needle, hay, off)
 occurs_in(needle::Regex, hay::MaybeSub{<:Str}; off::Integer=0)   = _occurs_in(needle, hay, off)
 
+findnext(a::RegexStr, b::AbstractString, i) = StrBase.nothing_sentinel(find(Fwd, a, b, i))
+
+@static isdefined(Base, :isnothing) || (isnothing(r) = (r === nothing))
+
 # Copied from julia/base/regex.jl
 # Regex really should be moved to stdlib, and an AbstractRegex or AbstractPattern type added
 #
@@ -736,7 +744,7 @@ function findall(t::RegexStr, s::AbstractString; overlap::Bool=false)
     found = UnitRange{Int}[]
     i, e = firstindex(s), lastindex(s)
     while true
-        r = find(Fwd, t, s, i)
+        r = findnext(t, s, i)
         isnothing(r) && break
         push!(found, r)
         j = overlap || isempty(r) ? first(r) : last(r)
@@ -763,8 +771,8 @@ function count(t::RegexStr, s::AbstractString; overlap::Bool=false)
     n = 0
     i, e = firstindex(s), lastindex(s)
     while true
-        r = find(Fwd, t, s, i)
-        isnothing(r) && break
+        r = findnext(t, s, i)
+        isnothing(r)  && break
         n += 1
         j = overlap || isempty(r) ? first(r) : last(r)
         j > e && break
