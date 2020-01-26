@@ -25,10 +25,10 @@ test = ["Test", "Unicode", "Random"]
 
 [compat]
 julia = "^1.0.0"
-ModuleInterfaceTools = "≥ 1.0.1"
-StrAPI = "≥ 1.0.0"
-MurmurHash3 = "≥ 1.0.1"
-PCRE2 = "≥ 1.0.2"
-ChrBase = "≥ 1.0.0"
-CharSetEncodings = "≥ 1.0.0"
-StrBase = "≥ 1.0.0"
+ModuleInterfaceTools = "1.0.1"
+StrAPI = "1.0.0"
+MurmurHash3 = "1.0.3"
+PCRE2 = "1.0.2"
+ChrBase = "1.0.0"
+CharSetEncodings = "1.0.0"
+StrBase = "1.0.1"
