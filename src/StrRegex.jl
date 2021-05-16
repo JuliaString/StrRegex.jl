@@ -251,8 +251,14 @@ function show(io::IO, re::RegexStr)
     opts = re.compile_options
     neg  = re.negated_options
     if (opts & ~imsx) == DEFAULT_COMPILER_OPTS || neg != 0
+@static if VERSION < v"1.5.0-DEV.530"
         print(io, 'R')
         Base.print_quoted_literal(io, re.pattern)
+else
+        print(io, "R\"")
+        Base.escape_raw_string(io, re.pattern)
+        print(io, "\"")
+end
         (opts & PCRE.CASELESS ) == 0 || print(io, 'i')
         (opts & PCRE.MULTILINE) == 0 || print(io, 'm')
         (opts & PCRE.DOTALL   ) == 0 || print(io, 's')
