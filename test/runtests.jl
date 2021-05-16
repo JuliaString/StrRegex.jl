@@ -165,6 +165,11 @@ target = """71.163.72.113 - - [30/Jul/2014:16:40:55 -0700] "GET emptymind.org/th
         show(buf, R"")
         @test read(buf, String) == "R\"\""
 
+        # Issue #29580
+        @static if VERSION >= v"1.7.0-DEV.407"
+            @test repr(R"\\\"") == raw"R\"\\\\\\\"\""
+        end
+
         # see #10994, #11447: PCRE2 allows NUL chars in the pattern
         @test occurs_in(RegexStr(T("^a\0b\$")), T("a\0b"))
 
