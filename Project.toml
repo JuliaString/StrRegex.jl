@@ -9,7 +9,6 @@ version = "1.2.0"
 [deps]
 ModuleInterfaceTools = "5cb8414e-7aab-5a03-a681-351269c074bf"
 PCRE2   = "c9310f65-a42c-5928-aca3-d34f64192029" # d62uhoik906m7n8r
-MurmurHash3 = "b10b62ed-fbae-5ea5-b934-abaf0477b71d"
 StrAPI = "69e7dfc3-c4d0-5e14-8d95-d6042a05b383"
 CharSetEncodings = "cb9422de-a9d8-5b68-86db-ff05833ab307"
 ChrBase = "c13fa7b1-fb91-5a40-8b3c-3aad7fd30002"
@@ -27,7 +26,6 @@ test = ["Test", "Unicode", "Random"]
 julia = "1.6"
 ModuleInterfaceTools = "1.0.1"
 StrAPI = "1"
-MurmurHash3 = "1.0.3"
 PCRE2 = "1.0.2"
 ChrBase = "1"
 CharSetEncodings = "1"
